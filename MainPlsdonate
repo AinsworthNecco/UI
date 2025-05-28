@@ -1,335 +1,339 @@
---[[
-    PHIÊN BẢN SỬA LỖI HOÀN CHỈNH (Tối giản)
-    Mục tiêu: Tìm Booth -> Teleport -> Claim
-    Đã sửa lỗi treo ở phần tìm Remotes bằng cách kiểm tra Event "ClaimBooth" một cách an toàn.
-]]
-
-local startTime = tick()
-local function getElapsedTime()
-    return string.format("%.2f", tick() - startTime)
-end
-
--- KHỞI TẠO GUI ĐỂ IN LOG RA MÀN HÌNH
-local CoreGui = game:GetService("CoreGui")
-local DebugScreenGui = CoreGui:FindFirstChild("DebugLogScreenGui_Fixed") 
-if DebugScreenGui then DebugScreenGui:Destroy() end -- Xóa GUI cũ nếu có
-
-DebugScreenGui = Instance.new("ScreenGui")
-DebugScreenGui.Name = "DebugLogScreenGui_Fixed"
-DebugScreenGui.ResetOnSpawn = false
-DebugScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Global
-DebugScreenGui.Parent = CoreGui
-
-local DebugTextLabel = Instance.new("TextLabel")
-DebugTextLabel.Name = "DebugLogOutput"
-DebugTextLabel.Size = UDim2.new(0.5, 0, 0.7, 0) -- Tăng chiều cao một chút
-DebugTextLabel.Position = UDim2.new(0, 5, 0, 5)
-DebugTextLabel.BackgroundColor3 = Color3.fromRGB(10, 10, 10) -- Nền tối hơn chút
-DebugTextLabel.BackgroundTransparency = 0.2
-DebugTextLabel.TextColor3 = Color3.fromRGB(50, 255, 50) -- Chữ xanh lá sáng
-DebugTextLabel.Font = Enum.Font.Code
-DebugTextLabel.TextSize = 12
-DebugTextLabel.TextWrapped = true
-DebugTextLabel.TextXAlignment = Enum.TextXAlignment.Left
-DebugTextLabel.TextYAlignment = Enum.TextYAlignment.Top
-DebugTextLabel.RichText = true
-DebugTextLabel.Parent = DebugScreenGui
-
-local debugLogLines = {}
-local MAX_LOG_LINES = 35 -- Tăng số dòng log
-
-local function screenPrint(message)
-    local timestampedMessage = string.format("[%s] %s", getElapsedTime(), tostring(message))
-    pcall(print, timestampedMessage) -- Vẫn print ra console gốc, dùng pcall để tránh lỗi print hiếm gặp
-
-    table.insert(debugLogLines, timestampedMessage)
-    while #debugLogLines > MAX_LOG_LINES do
-        table.remove(debugLogLines, 1) 
-    end
-    if DebugTextLabel and DebugTextLabel.Parent then -- Kiểm tra GUI còn tồn tại
-        DebugTextLabel.Text = table.concat(debugLogLines, "\n")
-    end
-end
--- KẾT THÚC PHẦN GUI DEBUG
-
-screenPrint("Bắt đầu Script Sửa Lỗi Hoàn Chỉnh...")
-
-repeat
-    task.wait()
-until game:IsLoaded()
-screenPrint("Game đã IsLoaded.")
-
-if game.PlaceId ~= 8737602449 and game.PlaceId ~= 8943844393 then
-    screenPrint(string.format("<font color='rgb(255,50,50)'>SAI PLACEID (%d). Script dừng.</font>", game.PlaceId))
-    return
-end
-screenPrint(string.format("PlaceId chính xác: %d", game.PlaceId))
-
-local identifyexecutor = identifyexecutor or function() return 'Unknown Executor' end
-local cloneref = (identifyexecutor() ~= "Synapse Z" and not identifyexecutor():find("Codex") and cloneref) or function(o) return o end
-screenPrint(string.format("Executor: %s", identifyexecutor()))
-
-local Players = cloneref(game:GetService("Players"))
-local HttpService = cloneref(game:GetService("HttpService")) -- Giữ lại nếu serverHop gốc cần
-local TPService = cloneref(game:GetService("TeleportService")) -- Giữ lại nếu serverHop gốc cần
-local ReplicatedStorage = cloneref(game:GetService("ReplicatedStorage"))
-if not workspace then
-    workspace = game:GetService('Workspace')
-end
+-- Các service cần thiết
+local TeleportService = game:GetService("TeleportService")
+local HttpService = game:GetService("HttpService")
+local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
-if not LocalPlayer then screenPrint("<font color='rgb(255,50,50)'>LocalPlayer không tìm thấy! Lỗi nghiêm trọng.</font>"); return end
-screenPrint(string.format("Services đã lấy. LocalPlayer: %s", LocalPlayer.Name))
+local CoreGui = game:GetService("CoreGui")
 
-local Remotes
+-- --- Cấu hình Script ---
+local placeId = game.PlaceId
+local currentJobId = game.JobId
 
---===================================================================
--- LOGIC TÌM REMOTES AN TOÀN (Kiểm tra cấu trúc Event "ClaimBooth")
---===================================================================
-screenPrint("Bắt đầu tìm Remotes module (phiên bản kiểm tra 'ClaimBooth')...")
-local remotesFound = false
-for i, v_module in next, ReplicatedStorage:GetChildren() do
-    if v_module.Name:find('Remote') and v_module:IsA('ModuleScript') then
-        screenPrint(string.format("Kiểm tra ứng viên Remotes: '%s'", v_module.Name))
-        local tempRemotes
-        local sucRequire, requireResult = pcall(function()
-            tempRemotes = require(v_module)
-        end)
+local DEFAULT_WAIT_MINUTES = 10 -- [[ THAY ĐỔI THÀNH 10 PHÚT ]]
+local minPlayerPercentage = 0.50
+local maxPlayerPercentageLimit = 0.90
+local waitTimeBetweenFullScans = 7
+local waitTimeBetweenPageFetches = 0.75
+local baseRetryDelay = 1
+local maxRetryDelay = 16
 
-        if sucRequire and typeof(tempRemotes) == "table" and typeof(tempRemotes.Event) == "function" then
-            screenPrint(string.format("  Đã require module '%s', có field 'Event' là function.", v_module.Name))
-            
-            local claimBoothEventObj
-            local sucGetEvent, getEventResult = pcall(function()
-                claimBoothEventObj = tempRemotes.Event("ClaimBooth") 
-            end)
+local SERVER_HISTORY_FILENAME = "server_hop_history.txt"
 
-            if sucGetEvent then
-                if typeof(claimBoothEventObj) == "table" and typeof(claimBoothEventObj.FireServer) == "function" then
-                    screenPrint(string.format("  <font color='rgb(50,255,50)'>Module '%s' cung cấp RemoteEvent 'ClaimBooth' hợp lệ.</font>", v_module.Name))
-                    Remotes = tempRemotes
-                    remotesFound = true
-                    screenPrint(string.format("  Remotes module được gán LÀ: %s", v_module.Name))
-                    break 
-                else
-                    screenPrint(string.format("  Module '%s', tempRemotes.Event('ClaimBooth') không trả về object hợp lệ (type: %s).", v_module.Name, typeof(claimBoothEventObj)))
-                    if typeof(claimBoothEventObj) == "table" then
-                         screenPrint(string.format("     (claimBoothEventObj.FireServer type: %s)", typeof(claimBoothEventObj.FireServer)))
-                    end
+-- --- Kiểm tra và gán hàm đọc/ghi file (NẾU CÓ) ---
+local canAccessFiles = false
+local writefile_func, readfile_func
+if writefile and readfile then
+    canAccessFiles = true
+    writefile_func = writefile
+    readfile_func = readfile
+    print("[ServerHop] Phát hiện writefile/readfile. Tính năng lưu lịch sử server được kích hoạt.")
+else
+    print("[ServerHop] Không phát hiện writefile/readfile. Sẽ chỉ tránh server hiện tại.")
+end
+
+-- --- UI Chính (Thông báo trạng thái) ---
+local playerGui = LocalPlayer:WaitForChild("PlayerGui")
+local statusScreenGui = playerGui:FindFirstChild("ServerHopStatusGUI")
+if statusScreenGui then statusScreenGui:Destroy() end -- Xóa GUI cũ nếu có
+
+statusScreenGui = Instance.new("ScreenGui")
+statusScreenGui.Name = "ServerHopStatusGUI"
+statusScreenGui.ResetOnSpawn = false
+statusScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+statusScreenGui.Parent = playerGui
+
+local statusTextLabel = Instance.new("TextLabel")
+statusTextLabel.Name = "StatusLabel"
+statusTextLabel.Size = UDim2.new(0.8, 0, 0.15, 0)
+statusTextLabel.Position = UDim2.new(0.1, 0, 0.05, 0)
+statusTextLabel.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+statusTextLabel.BackgroundTransparency = 0.3
+statusTextLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+statusTextLabel.Font = Enum.Font.SourceSansSemibold
+statusTextLabel.TextSize = 18
+statusTextLabel.TextWrapped = true
+statusTextLabel.TextXAlignment = Enum.TextXAlignment.Left
+statusTextLabel.Text = "Đang khởi tạo..."
+statusTextLabel.Parent = statusScreenGui
+
+local function updateStatus(message)
+    print("[ServerHop] " .. message)
+    if statusTextLabel and statusTextLabel.Parent then
+        statusTextLabel.Text = message
+    end
+end
+
+-- --- Hàm xử lý file cho LỊCH SỬ server ---
+local serverHistoryCache = {}
+
+local function loadServerHistory()
+    local historySet = {}
+    if canAccessFiles then
+        local success, content = pcall(readfile_func, SERVER_HISTORY_FILENAME)
+        if success and content then
+            local count = 0
+            for line in string.gmatch(content, "[^" .. "\r\n" .. "]+") do
+                local trimmedLine = line:match("^%s*(.-)%s*$")
+                if trimmedLine and #trimmedLine > 0 then
+                    historySet[trimmedLine] = true
+                    count = count + 1
                 end
-            else
-                screenPrint(string.format("  <font color='rgb(255,150,50)'>Lỗi khi gọi tempRemotes.Event('ClaimBooth') cho module '%s': %s</font>", v_module.Name, tostring(getEventResult)))
             end
+            if count > 0 then print("[ServerHop] Đã tải lịch sử " .. count .. " server.")
+            else print("[ServerHop] File lịch sử rỗng hoặc không có ID hợp lệ.") end
         else
-            if not sucRequire then screenPrint(string.format("  <font color='rgb(255,150,50)'>Lỗi khi require module '%s': %s</font>", v_module.Name, tostring(requireResult))) end
+            if not success then print("[ServerHop] Lỗi đọc " .. SERVER_HISTORY_FILENAME .. ": " .. tostring(content))
+            else print("[ServerHop] File lịch sử " .. SERVER_HISTORY_FILENAME .. " không tồn tại/rỗng.") end
         end
     end
-    task.wait()
+    serverHistoryCache = historySet
+    return historySet
 end
 
-if not remotesFound or not Remotes then
-    screenPrint("<font color='rgb(255,50,50)'>KHÔNG TÌM THẤY Remotes module hợp lệ! Script không thể tiếp tục.</font>")
-    return
-else
-    screenPrint("<font color='rgb(50,255,50)'>Remotes module đã được tìm thấy và gán.</font>")
-end
---===================================================================
--- KẾT THÚC LOGIC TÌM REMOTES
---===================================================================
-
--- Xác định _boothlocation (Logic từ script gốc)
-screenPrint("Bắt đầu xác định _boothlocation...")
-local _shuffled = workspace:WaitForChild('MapUI', 3)
-local _shufflerandom = 0
-if not _shuffled then
-    screenPrint("_shuffled (workspace.MapUI) không tìm thấy sau 3s. _shufflerandom = 1")
-    _shufflerandom = 1
-else
-    screenPrint(string.format("_shuffled (workspace.MapUI) được tìm thấy: %s", tostring(_shuffled)))
+local function addJobIdToHistoryAndSave(jobIdToAdd)
+    if not jobIdToAdd or not canAccessFiles then return end
+    serverHistoryCache[jobIdToAdd] = true
+    local historyLines = {}
+    for id in pairs(serverHistoryCache) do table.insert(historyLines, id) end
+    local contentToWrite = table.concat(historyLines, "\n")
+    local success, err = pcall(writefile_func, SERVER_HISTORY_FILENAME, contentToWrite)
+    if success then print("[ServerHop] Đã cập nhật lịch sử server, thêm ID: " .. jobIdToAdd)
+    else print("[ServerHop] Lỗi lưu lịch sử: " .. tostring(err)) end
 end
 
-local _boothlocation
-if _shufflerandom == 1 then
-    screenPrint("Đang thử lấy _boothlocation từ PlayerGui...")
-    local successPcallGui, pcallGuiResult = pcall(function()
-        _boothlocation = LocalPlayer:WaitForChild('PlayerGui', 5):WaitForChild('MapUIContainer', 5):WaitForChild('MapUI', 5)
-    end)
-    if not successPcallGui then
-        screenPrint(string.format("  <font color='rgb(255,150,50)'>Lỗi khi pcall lấy _boothlocation từ PlayerGui: %s</font>", tostring(pcallGuiResult)))
-    elseif not _boothlocation then
-        screenPrint("  pcall thành công nhưng _boothlocation vẫn nil từ PlayerGui.")
-    end
-else
-    _boothlocation = _shuffled
-    if not _boothlocation then -- Fallback
-         _boothlocation = workspace:WaitForChild('MapUI', 1)
-    end
-    screenPrint(string.format("Lấy _boothlocation từ _shuffled hoặc workspace.MapUI: %s", tostring(_boothlocation)))
+-- --- Logic Tìm Server ---
+local chosenServer = nil
+local serversUrlBase = "https://games.roblox.com/v1/games/" .. placeId .. "/servers/Public?sortOrder=Asc&limit=100"
+local serverHistoryToAvoid = loadServerHistory()
+
+local function listServers(cursor)
+    local requestUrl = serversUrlBase
+    if cursor then requestUrl = requestUrl .. "&cursor=" .. cursor end
+    local successCall, result = pcall(function() return game:HttpGet(requestUrl, true) end)
+    if not successCall then return false, "HttpGet thất bại: " .. tostring(result) end
+    local successDecode, decodedResult = pcall(function() return HttpService:JSONDecode(result) end)
+    if not successDecode then return false, "JSONDecode thất bại: " .. tostring(decodedResult) end
+    return true, decodedResult
 end
 
-if not _boothlocation then
-    screenPrint("<font color='rgb(255,50,50)'>KHÔNG TÌM THẤY _boothlocation! Script không thể tiếp tục.</font>")
-    return
-else
-    screenPrint(string.format("<font color='rgb(50,255,50)'>_boothlocation được xác định là: %s</font>", _boothlocation:GetFullName()))
-end
+function searchForServer()
+    local historyCount = 0
+    for _ in pairs(serverHistoryToAvoid) do historyCount = historyCount + 1 end
+    updateStatus(string.format("Bắt đầu tìm server (%.0f%% - <%.0f%%). Tránh server hiện tại và %d server trong lịch sử.",
+        minPlayerPercentage * 100, maxPlayerPercentageLimit * 100, historyCount))
 
-local unclaimed = {}
-local mainCheckPosition = Vector3.new(165.161, 0, 311.636)
-screenPrint(string.format("mainCheckPosition: %s", tostring(mainCheckPosition)))
+    local searchLoopActive = true
+    chosenServer = nil -- Reset chosenServer trước mỗi lần tìm kiếm mới
+    while searchLoopActive and not chosenServer do
+        local currentNextCursorForFullScan = nil
+        local currentRetryDelaySearch = baseRetryDelay -- Đổi tên biến để không trùng với biến retry trong page fetch
+        updateStatus("Bắt đầu lượt quét mới...")
+        
+        local allPagesScannedForThisRound = false
+        while not allPagesScannedForThisRound and not chosenServer do
+            local pageScanAttempts = 0
+            local maxPageScanAttempts = 4
+            local pageSuccessfullyFetched = false
+            local currentRetryDelayPage = baseRetryDelay -- Biến retry cho việc fetch page
 
--- HÀM TÌM GIAN HÀNG (Từ script gốc)
-local function findUnclaimed()
-    screenPrint("findUnclaimed() - Bắt đầu.")
-    unclaimed = {}
-    local boothUIFolder = _boothlocation:WaitForChild("BoothUI", 10)
-    local interactionsFolder = workspace:WaitForChild("BoothInteractions", 10)
+            while not pageSuccessfullyFetched and pageScanAttempts < maxPageScanAttempts do
+                pageScanAttempts = pageScanAttempts + 1
+                if pageScanAttempts > 1 then
+                    updateStatus(string.format("Thử lại lấy trang (lần %d/%d). Chờ %.1fs...", pageScanAttempts, maxPageScanAttempts, currentRetryDelayPage))
+                    task.wait(currentRetryDelayPage) -- Sửa: dùng wait thay vì task.wait
+                    currentRetryDelayPage = math.min(currentRetryDelayPage * 2, maxRetryDelay)
+                else
+                    updateStatus("Đang lấy trang server (cursor: " .. (currentNextCursorForFullScan or "đầu tiên") .. ")...")
+                end
 
-    if not boothUIFolder then screenPrint("findUnclaimed - <font color='rgb(255,50,50)'>Không tìm thấy BoothUI trong: " .. _boothlocation:GetFullName() .. "</font>"); return false end
-    if not interactionsFolder then screenPrint("findUnclaimed - <font color='rgb(255,50,50)'>Không tìm thấy BoothInteractions trong workspace</font>"); return false end
-    screenPrint("findUnclaimed - Đã có BoothUIFolder và InteractionsFolder.")
+                local success, dataOrError = listServers(currentNextCursorForFullScan)
 
-    local mainPos2D = Vector3.new(mainCheckPosition.X, 0, mainCheckPosition.Z)
-    for i, uiFrame in ipairs(boothUIFolder:GetChildren()) do
-        if uiFrame:IsA("Frame") and uiFrame:FindFirstChild("Details") and uiFrame.Details:FindFirstChild("Owner") and uiFrame.Details.Owner:IsA("TextLabel") then
-            if uiFrame.Details.Owner.Text == "unclaimed" then
-                local boothNumMatch = uiFrame.Name:match("%d+")
-                if boothNumMatch then
-                    local boothNum = tonumber(boothNumMatch)
-                    if boothNum then
-                        for _, interactPart in ipairs(interactionsFolder:GetChildren()) do
-                            if interactPart:IsA("BasePart") and interactPart:GetAttribute("BoothSlot") == boothNum then
-                                local pos2D = Vector3.new(interactPart.Position.X, 0, interactPart.Position.Z)
-                                if (pos2D - mainPos2D).Magnitude < 92 then
-                                    table.insert(unclaimed, boothNum)
-                                    screenPrint(string.format("  findUnclaimed - Đã thêm gian hàng số %d.", boothNum))
-                                    break
+                if success then
+                    pageSuccessfullyFetched = true
+                    currentRetryDelayPage = baseRetryDelay 
+                    local serverListData = dataOrError
+
+                    if serverListData and serverListData.data then
+                        local pageSuitableServers = {}
+                        if #serverListData.data > 0 then
+                             updateStatus("Đã nhận " .. #serverListData.data .. " server. Đang lọc...")
+                            
+                            for _, serverInfo in ipairs(serverListData.data) do
+                                local serverId = serverInfo.id
+                                local isCurrentServer = (serverId == currentJobId)
+                                local isInHistory = (serverHistoryToAvoid[serverId] == true)
+
+                                if not isCurrentServer and not isInHistory then
+                                    if serverInfo.playing and serverInfo.maxPlayers and serverInfo.maxPlayers > 0 then
+                                        local playerRatio = serverInfo.playing / serverInfo.maxPlayers
+                                        if playerRatio >= minPlayerPercentage and playerRatio < maxPlayerPercentageLimit and serverInfo.playing < serverInfo.maxPlayers then
+                                            table.insert(pageSuitableServers, serverInfo)
+                                        end
+                                    end
                                 end
                             end
+
+                            if #pageSuitableServers > 0 then
+                                updateStatus("Đã tìm thấy " .. #pageSuitableServers .. " server phù hợp trên trang này. Chọn ngẫu nhiên...")
+                                chosenServer = pageSuitableServers[math.random(1, #pageSuitableServers)]
+                                allPagesScannedForThisRound = true 
+                                break 
+                            else
+                                updateStatus("Không có server nào phù hợp trên trang này (sau khi loại trừ).")
+                            end
+                        else
+                            updateStatus("Trang này không có server nào.")
                         end
+                        
+                        if not chosenServer then
+                            currentNextCursorForFullScan = serverListData.nextPageCursor
+                            if not currentNextCursorForFullScan then
+                                allPagesScannedForThisRound = true 
+                                updateStatus("Đã quét hết các trang trong lượt này (không tìm thấy server phù hợp).")
+                            end
+                        end
+                    else
+                        updateStatus("Dữ liệu server không hợp lệ dù API gọi thành công.")
+                        currentNextCursorForFullScan = serverListData and serverListData.nextPageCursor
+                         if not currentNextCursorForFullScan then allPagesScannedForThisRound = true end
+                    end
+                else 
+                    local errorMessage = dataOrError
+                    updateStatus("Lỗi API: " .. errorMessage)
+                    if pageScanAttempts >= maxPageScanAttempts then
+                        updateStatus("Không thể lấy dữ liệu trang này sau " .. maxPageScanAttempts .. " lần thử. Bỏ qua lượt quét này.")
+                        allPagesScannedForThisRound = true 
                     end
                 end
+            end 
+
+            if chosenServer or allPagesScannedForThisRound then break end
+            if pageSuccessfullyFetched and not allPagesScannedForThisRound and not chosenServer then
+                 updateStatus("Chờ " .. waitTimeBetweenPageFetches .. "s trước khi lấy trang tiếp theo...")
+                 task.wait(waitTimeBetweenPageFetches) -- Sửa: dùng wait thay vì task.wait
             end
         end
-    end
-    screenPrint(string.format("findUnclaimed - Quét xong. Gian hàng chưa có người: %d [%s]", #unclaimed, table.concat(unclaimed, ", ")))
-    return true
-end
 
--- HÀM TELEPORT
-local function performTeleportToBooth(boothNum)
-    screenPrint(string.format("performTeleportToBooth() - Mục tiêu gian hàng số: %d", boothNum))
-    local character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
-    if not character then screenPrint("<font color='rgb(255,50,50)'>performTeleportToBooth - Không có character!</font>"); return false end
-    local rootPart = character:FindFirstChild("HumanoidRootPart")
-    if not rootPart then 
-        rootPart = character:WaitForChild("HumanoidRootPart", 5)
-        if not rootPart then screenPrint("performTeleportToBooth - <font color='rgb(255,50,50)'>Không tìm thấy HumanoidRootPart.</font>"); return false end
-    end
-    screenPrint("performTeleportToBooth - Đã có HumanoidRootPart.")
-
-    local interactionsFolder = workspace:WaitForChild("BoothInteractions", 5)
-    if not interactionsFolder then screenPrint("performTeleportToBooth - <font color='rgb(255,50,50)'>Không tìm thấy BoothInteractions.</font>"); return false end
-    screenPrint("performTeleportToBooth - Đã có InteractionsFolder.")
-
-    local targetBoothInteractionCFrame
-    for _, v_part in ipairs(interactionsFolder:GetChildren()) do
-        if v_part:IsA("BasePart") and v_part:GetAttribute("BoothSlot") == boothNum then
-            targetBoothInteractionCFrame = v_part.CFrame
-            screenPrint(string.format("  performTeleportToBooth - Tìm thấy CFrame cho gian hàng %d tại %s", boothNum, tostring(targetBoothInteractionCFrame.Position)))
-            break
+        if chosenServer then
+            updateStatus(string.format("ĐÃ CHỌN SERVER! ID: %s. Người chơi: %d/%d (%.1f%%)",
+                chosenServer.id, chosenServer.playing, chosenServer.maxPlayers, (chosenServer.playing / chosenServer.maxPlayers) * 100))
+            searchLoopActive = false
+        elseif allPagesScannedForThisRound then
+             updateStatus(string.format("Không tìm thấy server phù hợp sau khi quét toàn bộ. Chờ %d giây rồi quét lại...", waitTimeBetweenFullScans))
+            task.wait(waitTimeBetweenFullScans) -- Sửa: dùng wait thay vì task.wait
         end
+         if not searchLoopActive then break end
     end
 
-    if targetBoothInteractionCFrame then
-        screenPrint(string.format("  performTeleportToBooth - Đang dịch chuyển đến gian hàng %d", boothNum))
-        rootPart.CFrame = targetBoothInteractionCFrame
-        task.wait(0.5) 
-        screenPrint("  performTeleportToBooth - Dịch chuyển hoàn tất (đã chờ 0.5s).")
-        return true
+    if chosenServer then
+        updateStatus("Chuẩn bị dịch chuyển đến server ID: " .. chosenServer.id .. "...")
+        addJobIdToHistoryAndSave(currentJobId)
+        task.wait(2) -- Sửa: dùng wait thay vì task.wait
+        
+        local success, err = pcall(function()
+            TeleportService:TeleportToPlaceInstance(placeId, chosenServer.id, LocalPlayer)
+        end)
+        
+        if not success then
+            updateStatus("Dịch chuyển thất bại: " .. tostring(err) .. ". Script sẽ thử tìm lại server khác sau 5 giây...")
+            chosenServer = nil 
+            task.wait(5) -- Sửa: dùng wait thay vì task.wait
+            searchForServer() 
+        end
     else
-        screenPrint(string.format("  performTeleportToBooth - <font color='rgb(255,100,100)'>KHÔNG tìm thấy CFrame cho gian hàng %d</font>", boothNum))
-        return false
+        updateStatus("Không thể tìm thấy server phù hợp sau nhiều lần thử. Script sẽ dừng hoặc thử lại sau một khoảng thời gian.")
+        -- Có thể thêm logic để thử lại performCountdownThenSearch sau một thời gian dài ở đây nếu muốn
     end
 end
 
--- HÀM CLAIM
-local function attemptClaimBooth(boothNum)
-    screenPrint(string.format("attemptClaimBooth() - Mục tiêu gian hàng số: %d", boothNum))
-    local claimSuccess = false
+-- [[ THAY ĐỔI TỪ ĐÂY ]] --
+local countdownShouldReset = false -- Biến cờ để báo hiệu reset
+local currentCountdownThread = nil -- Lưu trữ coroutine đếm ngược hiện tại
+
+local function performCountdownThenSearch(minutesToWait)
+    if not minutesToWait or minutesToWait <= 0 then
+        updateStatus("Thời gian chờ không hợp lệ. Bắt đầu tìm server ngay...")
+        searchForServer()
+        return
+    end
+
+    local totalWaitSeconds = minutesToWait * 60
+    updateStatus(string.format("Đã đặt giờ! Bắt đầu tìm server sau: %d phút %d giây...", math.floor(totalWaitSeconds / 60), totalWaitSeconds % 60))
     
-    local pcallStatusRemote, resultRemote = pcall(function()
-        screenPrint(string.format("  attemptClaimBooth - Gọi Remotes.Event('ClaimBooth'):InvokeServer(%d)", boothNum))
-        Remotes.Event("ClaimBooth"):InvokeServer(boothNum)
+    for i = totalWaitSeconds, 0, -1 do
+        if countdownShouldReset then -- Kiểm tra cờ reset
+            countdownShouldReset = false -- Đặt lại cờ
+            updateStatus("Đã có donate! Reset bộ đếm giờ...")
+            performCountdownThenSearch(DEFAULT_WAIT_MINUTES) -- Gọi lại chính hàm này để bắt đầu đếm lại
+            return -- Kết thúc vòng lặp hiện tại
+        end
+        local minutesLeft = math.floor(i / 60)
+        local secondsLeft = i % 60
+        updateStatus(string.format("Tìm server sau: %d phút %d giây...", minutesLeft, secondsLeft))
+        task.wait(1) -- Sử dụng task.wait() trong coroutine là ổn
+    end
+
+    -- Nếu không bị reset, thì thực hiện tìm server
+    searchForServer()
+end
+
+local function startInitialCountdown()
+    -- Hủy coroutine đếm ngược cũ nếu có
+    if currentCountdownThread and coroutine.status(currentCountdownThread) ~= "dead" then
+        coroutine.close(currentCountdownThread) -- Sử dụng coroutine.close để hủy (cần executor hỗ trợ)
+                                               -- Hoặc dùng một biến cờ khác để báo coroutine tự dừng.
+                                               -- Trong trường hợp này, việc gọi lại performCountdownThenSearch đã xử lý việc "reset" logic.
+    end
+    -- Tạo coroutine mới cho việc đếm ngược
+    currentCountdownThread = coroutine.create(function()
+        performCountdownThenSearch(DEFAULT_WAIT_MINUTES)
     end)
+    coroutine.resume(currentCountdownThread)
+end
 
-    if not pcallStatusRemote then
-        screenPrint(string.format("  attemptClaimBooth - <font color='rgb(255,50,50)'>Lỗi khi InvokeServer: %s</font>", tostring(resultRemote)))
-        return false
-    end
-    screenPrint("  attemptClaimBooth - InvokeServer đã được gọi.")
+-- --- Xử lý sự kiện Donate ---
+local leaderstats = LocalPlayer:WaitForChild("leaderstats")
+local raisedValueObject = leaderstats:WaitForChild("Raised") -- Giả sử tên là "Raised"
+local lastRaisedValue = raisedValueObject.Value
 
-    task.wait(1.5) -- Tăng thời gian chờ lên một chút
+raisedValueObject.Changed:Connect(function(newRaisedAmount)
+    if newRaisedAmount > lastRaisedValue then
+        updateStatus(string.format("Phát hiện donate! Số tiền Raised tăng từ %d lên %d.", lastRaisedValue, newRaisedAmount))
+        lastRaisedValue = newRaisedAmount
+        
+        -- Đặt cờ để reset countdown
+        countdownShouldReset = true 
+        
+        -- Nếu coroutine đếm ngược đang chạy, chúng ta cần một cách để nó nhận biết và tự reset.
+        -- Việc kiểm tra `countdownShouldReset` trong vòng lặp của `performCountdownThenSearch` sẽ xử lý điều này.
+        -- Nếu `performCountdownThenSearch` không chạy trong coroutine, bạn có thể cần trực tiếp gọi lại hàm đếm ngược từ đây.
+        -- Tuy nhiên, với cấu trúc hiện tại, cờ là đủ nếu `performCountdownThenSearch` đang hoạt động.
+        -- Nếu `performCountdownThenSearch` đã kết thúc và `searchForServer` đang chạy, thì việc reset sẽ có hiệu lực cho LẦN ĐẾM NGƯỢC TIẾP THEO.
+        -- Để reset ngay cả khi đang tìm server, logic sẽ phức tạp hơn (cần ngắt `searchForServer`).
+        -- Hiện tại, nó sẽ reset lần đếm ngược *tiếp theo* hoặc lần đếm ngược *hiện tại* nếu nó chưa kết thúc.
 
-    local boothUIFolder = _boothlocation:WaitForChild("BoothUI", 5)
-    if not boothUIFolder then screenPrint("  attemptClaimBooth - <font color='rgb(255,50,50)'>Không tìm thấy BoothUIFolder để xác nhận.</font>"); return false end
-    screenPrint("  attemptClaimBooth - Đã có BoothUIFolder.")
-
-    local uiFrame = boothUIFolder:FindFirstChild("BoothUI" .. tostring(boothNum))
-    if uiFrame and uiFrame:FindFirstChild("Details") and uiFrame.Details:FindFirstChild("Owner") and uiFrame.Details.Owner:IsA("TextLabel") then
-        local ownerText = uiFrame.Details.Owner.Text
-        screenPrint(string.format("  attemptClaimBooth - Owner text của gian hàng %d là: '%s'", boothNum, ownerText))
-        if string.find(ownerText, LocalPlayer.DisplayName) or string.find(ownerText, LocalPlayer.Name) then -- Kiểm tra cả DisplayName và Name
-            screenPrint(string.format("  <font color='rgb(50,255,50)'>attemptClaimBooth - CHIẾM THÀNH CÔNG gian hàng số %d</font>", boothNum))
-            claimSuccess = true
+        -- Để đảm bảo bộ đếm được reset ngay và bắt đầu lại:
+        if currentCountdownThread and coroutine.status(currentCountdownThread) ~= "dead" then
+             -- Cách đơn giản nhất là để vòng lặp trong performCountdownThenSearch tự xử lý thông qua cờ.
+             -- Nếu muốn "cưỡng ép" hơn, bạn có thể thử hủy và tạo lại coroutine,
+             -- nhưng cần cẩn thận để tránh race condition.
+             print("[ServerHop] Cờ reset đã được đặt do có donate.")
         else
-            screenPrint("  attemptClaimBooth - Xác nhận lần 1 thất bại. Thử lại sau 1s...")
-            task.wait(1)
-            ownerText = uiFrame.Details.Owner.Text 
-            screenPrint(string.format("  attemptClaimBooth - Owner text lần 2 là: '%s'", ownerText))
-            if string.find(ownerText, LocalPlayer.DisplayName) or string.find(ownerText, LocalPlayer.Name) then
-                screenPrint(string.format("  <font color='rgb(50,255,50)'>attemptClaimBooth - CHIẾM THÀNH CÔNG (lần 2) gian hàng số %d</font>", boothNum))
-                claimSuccess = true
-            else
-                screenPrint("  attemptClaimBooth - <font color='rgb(255,100,100)'>Xác nhận lần 2 cũng thất bại.</font>")
-            end
+            -- Nếu không có countdown nào đang chạy (ví dụ: đang trong quá trình searchForServer)
+            -- thì lần performCountdownThenSearch tiếp theo (sau khi search xong) sẽ được reset.
+            -- Hoặc, chúng ta có thể chủ động bắt đầu lại một countdown mới ngay nếu không có cái nào đang hoạt động.
+            -- Tuy nhiên, logic hiện tại là searchForServer xong sẽ không tự động chạy lại countdown.
+            -- Bạn cần quyết định luồng mong muốn: sau khi hop server, có tự động bắt đầu countdown mới không?
+            -- Giả sử sau khi hop server, script sẽ chạy lại từ đầu hoặc bạn có logic để gọi lại startInitialCountdown.
+            print("[ServerHop] Donate được phát hiện, cờ reset được đặt. Lần đếm ngược tiếp theo sẽ được reset.")
         end
-    else
-        screenPrint(string.format("  attemptClaimBooth - <font color='rgb(255,100,100)'>Không tìm thấy cấu trúc UI (Owner.Text) cho gian hàng %d để xác nhận.</font>", boothNum))
     end
-    
-    return claimSuccess
-end
+end)
+-- [[ KẾT THÚC THAY ĐỔI ]] --
 
--- LUỒNG THỰC THI CHÍNH
-screenPrint("Bắt đầu luồng thực thi chính (Tìm -> TP -> Claim)...")
 
-local pcallFindSuccess, pcallFindError = pcall(findUnclaimed)
-if not pcallFindSuccess then
-    screenPrint(string.format("<font color='rgb(255,50,50)'>Lỗi nghiêm trọng khi pcall(findUnclaimed): %s</font>", tostring(pcallFindError)))
-    return
-end
-screenPrint("pcall(findUnclaimed) đã chạy xong.")
-
-if not unclaimed[2] then -- Logic gốc của bạn tập trung vào unclaimed[2]
-    screenPrint(string.format("<font color='rgb(255,200,0)'>KHÔNG có unclaimed[2]. Số gian hàng tìm thấy: %d. Script dừng.</font>", #unclaimed))
-    if #unclaimed > 0 then screenPrint(string.format("  (Gian hàng đầu tiên (unclaimed[1]) là: %s)", tostring(unclaimed[1]))) end
-    return
-end
-
-local targetBoothNumber = unclaimed[2]
-screenPrint(string.format("Gian hàng mục tiêu (unclaimed[2]) là: %d", targetBoothNumber))
-
-if performTeleportToBooth(targetBoothNumber) then
-    screenPrint(string.format("Teleport đến gian hàng %d có vẻ thành công. Chuẩn bị claim...", targetBoothNumber))
-    
-    if attemptClaimBooth(targetBoothNumber) then
-        screenPrint(string.format("<font color='rgb(50,255,50)'>HOÀN TẤT: Đã teleport và chiếm thành công gian hàng %d</font>", targetBoothNumber))
-        -- hopSet() -- Nếu bạn muốn giữ lại hopSet, cần định nghĩa nó từ script gốc
-    else
-        screenPrint(string.format("<font color='rgb(255,50,50)'>Thất bại khi chiếm gian hàng %d sau khi đã teleport.</font>", targetBoothNumber))
-    end
-else
-    screenPrint(string.format("<font color='rgb(255,50,50)'>Thất bại khi teleport đến gian hàng %d. Không thể claim.</font>", targetBoothNumber))
-end
-
-screenPrint("<font color='rgb(200,200,200)'>Script Sửa Lỗi Hoàn Chỉnh đã hoàn tất một lượt chạy.</font>")
+-- --- Khởi chạy Script ---
+updateStatus("Script đã khởi động. Chuẩn bị bắt đầu sau 5 giây để ổn định...") -- Giảm thời gian chờ ban đầu
+task.wait(5) 
+updateStatus("Thời gian chờ mặc định trước khi tìm server: " .. DEFAULT_WAIT_MINUTES .. " phút.")
+startInitialCountdown() -- Bắt đầu đếm ngược ban đầu
