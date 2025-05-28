@@ -1,329 +1,63 @@
---[[
-    PHIÊN BẢN SIÊU TỐI GIẢN ĐỂ DEBUG - CÓ IN LOG RA MÀN HÌNH
-    Cập nhật logic tìm Remotes để an toàn hơn.
-]]
-
-local startTime = tick()
-local function getElapsedTime()
-    return string.format("%.2f", tick() - startTime)
-end
-
--- KHỞI TẠO GUI ĐỂ IN LOG RA MÀN HÌNH (Giữ nguyên như trước)
-local CoreGui = game:GetService("CoreGui")
-local DebugScreenGui = Instance.new("ScreenGui")
-DebugScreenGui.Name = "DebugLogScreenGui_v2" -- Đổi tên để tránh trùng nếu script cũ còn
-DebugScreenGui.ResetOnSpawn = false
-DebugScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Global
-DebugScreenGui.Parent = CoreGui
-
-local DebugTextLabel = Instance.new("TextLabel")
-DebugTextLabel.Name = "DebugLogOutput"
-DebugTextLabel.Size = UDim2.new(0.5, 0, 0.6, 0)
-DebugTextLabel.Position = UDim2.new(0, 5, 0, 5)
-DebugTextLabel.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
-DebugTextLabel.BackgroundTransparency = 0.3
-DebugTextLabel.TextColor3 = Color3.fromRGB(0, 255, 0)
-DebugTextLabel.Font = Enum.Font.Code
-DebugTextLabel.TextSize = 12
-DebugTextLabel.TextWrapped = true
-DebugTextLabel.TextXAlignment = Enum.TextXAlignment.Left
-DebugTextLabel.TextYAlignment = Enum.TextYAlignment.Top
-DebugTextLabel.RichText = true
-DebugTextLabel.Parent = DebugScreenGui
-
-local debugLogLines = {}
-local MAX_LOG_LINES = 30
-
-local function screenPrint(message)
-    local timestampedMessage = string.format("[%s] %s", getElapsedTime(), tostring(message))
-    print(timestampedMessage) 
-
-    table.insert(debugLogLines, timestampedMessage)
-    while #debugLogLines > MAX_LOG_LINES do
-        table.remove(debugLogLines, 1) 
-    end
-    DebugTextLabel.Text = table.concat(debugLogLines, "\n")
-end
--- KẾT THÚC PHẦN GUI DEBUG
-
-screenPrint("Script siêu tối giản v2 (log màn hình, sửa Remotes) bắt đầu.")
-
-repeat
-    task.wait()
-until game:IsLoaded()
-screenPrint("Game đã IsLoaded.")
-
-if game.PlaceId ~= 8737602449 and game.PlaceId ~= 8943844393 then
-    screenPrint(string.format("Sai PlaceId. PlaceID hiện tại: %d - Script dừng.", game.PlaceId))
-    return
-end
-screenPrint(string.format("PlaceId chính xác: %d", game.PlaceId))
-
-local identifyexecutor = identifyexecutor or function() return 'Unknown Executor' end
-local cloneref = (identifyexecutor() ~= "Synapse Z" and not identifyexecutor():find("Codex") and cloneref) or function(o) return o end
-screenPrint(string.format("identifyexecutor: %s", identifyexecutor()))
-
-local Players = cloneref(game:GetService("Players"))
-local HttpService = cloneref(game:GetService("HttpService"))
-local TPService = cloneref(game:GetService("TeleportService"))
-local ReplicatedStorage = cloneref(game:GetService("ReplicatedStorage"))
-if not workspace then
-    workspace = game:GetService('Workspace')
-end
-local LocalPlayer = Players.LocalPlayer
-screenPrint(string.format("Services đã được lấy. LocalPlayer: %s", LocalPlayer.Name))
-
-local Remotes
+-- ... (Phần đầu script với GUI debug giữ nguyên như trước) ...
+-- screenPrint, khai báo Players, LocalPlayer, ReplicatedStorage, Remotes ...
 
 --===================================================================
--- THAY ĐỔI LOGIC TÌM REMOTES MODULE
+-- VÒNG LẶP TÌM REMOTES với DEBUG CHI TIẾT HƠN
 --===================================================================
-screenPrint("Bắt đầu tìm Remotes module (phiên bản kiểm tra 'ClaimBooth')...")
+screenPrint("DEBUG: Bắt đầu tìm Remotes module (phiên bản gọi PromotionBlimpGiftbux)...")
 local remotesFound = false
 for i, v_module in next, ReplicatedStorage:GetChildren() do
     if v_module.Name:find('Remote') and v_module:IsA('ModuleScript') then
-        screenPrint(string.format("Kiểm tra ứng viên Remotes: '%s'", v_module.Name))
+        screenPrint(string.format("DEBUG: A - Kiểm tra ứng viên Remotes: '%s'", v_module.Name))
         local tempRemotes
         local sucRequire, requireResult = pcall(function()
             tempRemotes = require(v_module)
         end)
 
         if sucRequire and typeof(tempRemotes) == "table" and typeof(tempRemotes.Event) == "function" then
-            screenPrint(string.format("Đã require module '%s', có field 'Event' là function.", v_module.Name))
+            screenPrint(string.format("DEBUG: B - Đã require module '%s', có 'Event' là function. Chuẩn bị pcall FireServer.", v_module.Name))
             
-            local claimBoothEventObj
-            local sucGetEvent, getEventResult = pcall(function()
-                -- Cố gắng lấy đối tượng Event cho "ClaimBooth"
-                claimBoothEventObj = tempRemotes.Event("ClaimBooth") 
+            local sucEventTest, eventTestResult
+            
+            screenPrint(string.format("DEBUG: C - Sắp pcall FireServer cho PromotionBlimpGiftbux trên %s", v_module.Name))
+            sucEventTest, eventTestResult = pcall(function()
+                screenPrint(string.format("DEBUG: D - BÊN TRONG PCALL: Thử gọi Event 'PromotionBlimpGiftbux' trên module %s", v_module.Name))
+                tempRemotes.Event('PromotionBlimpGiftbux'):FireServer() -- Lệnh gốc
+                screenPrint(string.format("DEBUG: E - BÊN TRONG PCALL: Gọi Event 'PromotionBlimpGiftbux' XONG (không có lỗi script). Module: %s", v_module.Name))
             end)
+            
+            screenPrint(string.format("DEBUG: F - ĐÃ THOÁT PCALL cho FireServer. sucEventTest: %s. Module: %s", tostring(sucEventTest), v_module.Name))
+            if eventTestResult then 
+                screenPrint(string.format("DEBUG: F.1 - eventTestResult (nếu có lỗi): %s", tostring(eventTestResult)))
+            end
 
-            if sucGetEvent then
-                if typeof(claimBoothEventObj) == "table" and typeof(claimBoothEventObj.FireServer) == "function" then
-                    -- Đây có vẻ là module Remotes đúng vì nó cung cấp Event "ClaimBooth" có thể FireServer
-                    screenPrint(string.format("Module '%s' cung cấp RemoteEvent 'ClaimBooth' hợp lệ.", v_module.Name))
-                    Remotes = tempRemotes
-                    remotesFound = true
-                    screenPrint(string.format("Remotes module được gán LÀ: %s", v_module.Name))
-                    break -- Đã tìm thấy
-                else
-                    screenPrint(string.format("Module '%s', tempRemotes.Event('ClaimBooth') không trả về object hợp lệ (type: %s).", v_module.Name, typeof(claimBoothEventObj)))
-                    if typeof(claimBoothEventObj) == "table" then
-                         screenPrint(string.format("   (claimBoothEventObj.FireServer type: %s)", typeof(claimBoothEventObj.FireServer)))
-                    end
-                end
+            if sucEventTest then
+                Remotes = tempRemotes
+                remotesFound = true
+                screenPrint(string.format("DEBUG: G - Remotes module được gán LÀ: %s", v_module.Name))
+                break 
             else
-                screenPrint(string.format("Lỗi khi gọi tempRemotes.Event('ClaimBooth') cho module '%s': %s", v_module.Name, tostring(getEventResult)))
+                screenPrint(string.format("DEBUG: H - Thử Event 'PromotionBlimpGiftbux' thất bại (sucEventTest=false). Module: %s", v_module.Name))
+                 if eventTestResult then screenPrint(string.format("DEBUG: H.1 - Lỗi cụ thể: %s", tostring(eventTestResult))) end
             end
         else
-            if not sucRequire then screenPrint(string.format("Lỗi khi require module '%s': %s", v_module.Name, tostring(requireResult))) end
-            if sucRequire and typeof(tempRemotes) ~= "table" then screenPrint(string.format("Module '%s' không phải là table sau khi require (type: %s).", v_module.Name, typeof(tempRemotes))) end
-            if sucRequire and tempRemotes and typeof(tempRemotes.Event) ~= "function" then screenPrint(string.format("Module '%s' không có 'Event' field là function (type: %s).", v_module.Name, typeof(tempRemotes.Event))) end
+            if not sucRequire then screenPrint(string.format("DEBUG: Lỗi khi require module '%s': %s", v_module.Name, tostring(requireResult))) end
+            -- (Các print debug khác cho trường hợp require lỗi có thể thêm ở đây)
         end
     end
-    task.wait() -- Giữ lại task.wait từ script gốc
+    task.wait()
 end
 
 if not remotesFound or not Remotes then
-    screenPrint("<font color='rgb(255,100,100)'>KHÔNG TÌM THẤY Remotes module hợp lệ! Script không thể tiếp tục an toàn.</font>")
+    screenPrint("<font color='rgb(255,100,100)'>I - KHÔNG TÌM THẤY Remotes module! Script không thể tiếp tục an toàn.</font>")
     return
 else
-    screenPrint("<font color='rgb(100,255,100)'>Remotes module đã được tìm thấy và gán.</font>")
+    screenPrint("<font color='rgb(100,255,100)'>J - Remotes module đã được tìm thấy và gán.</font>")
 end
 --===================================================================
--- KẾT THÚC THAY ĐỔI LOGIC TÌM REMOTES
+-- KẾT THÚC VÒNG LẶP TÌM REMOTES
 --===================================================================
 
--- Xác định _boothlocation (Giữ nguyên như trước)
-screenPrint("Bắt đầu xác định _boothlocation...")
-local _shuffled = workspace:WaitForChild('MapUI', 3)
-local _shufflerandom = 0
-if not _shuffled then
-    screenPrint("_shuffled (workspace.MapUI) không tìm thấy sau 3s. _shufflerandom = 1")
-    _shufflerandom = 1
-else
-    screenPrint(string.format("_shuffled (workspace.MapUI) được tìm thấy: %s", tostring(_shuffled)))
-end
-
-local _boothlocation
-if _shufflerandom == 1 then
-    screenPrint("Đang thử lấy _boothlocation từ PlayerGui...")
-    local successPcallGui, pcallGuiResult = pcall(function()
-        _boothlocation = LocalPlayer:WaitForChild('PlayerGui', 5):WaitForChild('MapUIContainer', 5):WaitForChild('MapUI', 5)
-    end)
-    if not successPcallGui then
-        screenPrint(string.format("Lỗi khi pcall lấy _boothlocation từ PlayerGui: %s", tostring(pcallGuiResult)))
-    elseif not _boothlocation then
-        screenPrint("pcall thành công nhưng _boothlocation vẫn nil từ PlayerGui.")
-    end
-else
-    _boothlocation = _shuffled
-    if not _boothlocation then
-         _boothlocation = workspace:WaitForChild('MapUI', 1)
-    end
-    screenPrint("Đang thử lấy _boothlocation từ _shuffled hoặc workspace.MapUI.")
-end
-
-if not _boothlocation then
-    screenPrint("<font color='rgb(255,100,100)'>KHÔNG TÌM THẤY _boothlocation! Script không thể tiếp tục an toàn.</font>")
-    return
-else
-    screenPrint(string.format("<font color='rgb(100,255,100)'>_boothlocation được xác định là: %s</font>", _boothlocation:GetFullName()))
-end
-
-local unclaimed = {}
-local mainCheckPosition = Vector3.new(165.161, 0, 311.636)
-screenPrint(string.format("mainCheckPosition được đặt là: %s", tostring(mainCheckPosition)))
-
--- HÀM TÌM GIAN HÀNG (Giữ nguyên như trước)
-local function findUnclaimed()
-    screenPrint("findUnclaimed() - Bắt đầu.")
-    unclaimed = {}
-    local boothUIFolder = _boothlocation:WaitForChild("BoothUI", 10)
-    local interactionsFolder = workspace:WaitForChild("BoothInteractions", 10)
-
-    if not boothUIFolder then screenPrint("findUnclaimed - <font color='rgb(255,100,100)'>Không tìm thấy BoothUI trong: " .. _boothlocation:GetFullName() .. "</font>"); return false end
-    if not interactionsFolder then screenPrint("findUnclaimed - <font color='rgb(255,100,100)'>Không tìm thấy BoothInteractions trong workspace</font>"); return false end
-    screenPrint("findUnclaimed - Đã có BoothUIFolder và InteractionsFolder.")
-
-    local mainPos2D = Vector3.new(mainCheckPosition.X, 0, mainCheckPosition.Z)
-    local foundAnyInLoop = 0
-    for i, uiFrame in ipairs(boothUIFolder:GetChildren()) do
-        if uiFrame:IsA("Frame") and uiFrame:FindFirstChild("Details") and uiFrame.Details:FindFirstChild("Owner") and uiFrame.Details.Owner:IsA("TextLabel") then
-            if uiFrame.Details.Owner.Text == "unclaimed" then
-                foundAnyInLoop = foundAnyInLoop + 1
-                local boothNumMatch = uiFrame.Name:match("%d+")
-                if boothNumMatch then
-                    local boothNum = tonumber(boothNumMatch)
-                    if boothNum then
-                        for _, interactPart in ipairs(interactionsFolder:GetChildren()) do
-                            if interactPart:IsA("BasePart") and interactPart:GetAttribute("BoothSlot") == boothNum then
-                                local pos2D = Vector3.new(interactPart.Position.X, 0, interactPart.Position.Z)
-                                if (pos2D - mainPos2D).Magnitude < 92 then
-                                    table.insert(unclaimed, boothNum)
-                                    screenPrint(string.format("findUnclaimed - Đã thêm gian hàng số %d vào danh sách unclaimed.", boothNum))
-                                    break
-                                end
-                            end
-                        end
-                    end
-                end
-            end
-        end
-    end
-    screenPrint(string.format("findUnclaimed - Quét xong. Số uiFrame 'unclaimed' xử lý được: %d. Số gian hàng thực sự thêm vào list: %d [%s]", foundAnyInLoop, #unclaimed, table.concat(unclaimed, ", ")))
-    return true
-end
-
--- HÀM TELEPORT (Giữ nguyên như trước)
-local function performTeleportToBooth(boothNum)
-    screenPrint(string.format("performTeleportToBooth() - Mục tiêu gian hàng số: %d", boothNum))
-    local character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
-    local rootPart = character:WaitForChild("HumanoidRootPart", 5)
-    if not rootPart then screenPrint("performTeleportToBooth - <font color='rgb(255,100,100)'>Không tìm thấy HumanoidRootPart.</font>"); return false end
-    screenPrint("performTeleportToBooth - Đã có HumanoidRootPart.")
-
-    local interactionsFolder = workspace:WaitForChild("BoothInteractions", 5)
-    if not interactionsFolder then screenPrint("performTeleportToBooth - <font color='rgb(255,100,100)'>Không tìm thấy BoothInteractions.</font>"); return false end
-    screenPrint("performTeleportToBooth - Đã có InteractionsFolder.")
-
-    local targetBoothInteractionCFrame
-    for _, v_part in ipairs(interactionsFolder:GetChildren()) do
-        if v_part:IsA("BasePart") and v_part:GetAttribute("BoothSlot") == boothNum then
-            targetBoothInteractionCFrame = v_part.CFrame
-            screenPrint(string.format("performTeleportToBooth - Tìm thấy CFrame cho gian hàng %d tại %s", boothNum, tostring(targetBoothInteractionCFrame.Position)))
-            break
-        end
-    end
-
-    if targetBoothInteractionCFrame then
-        screenPrint(string.format("performTeleportToBooth - Đang dịch chuyển đến gian hàng %d", boothNum))
-        rootPart.CFrame = targetBoothInteractionCFrame
-        task.wait(0.5) 
-        screenPrint("performTeleportToBooth - Dịch chuyển hoàn tất (đã chờ 0.5s).")
-        return true
-    else
-        screenPrint(string.format("performTeleportToBooth - <font color='rgb(255,100,100)'>KHÔNG tìm thấy CFrame cho gian hàng %d</font>", boothNum))
-        return false
-    end
-end
-
--- HÀM CLAIM (Giữ nguyên như trước)
-local function attemptClaimBooth(boothNum)
-    screenPrint(string.format("attemptClaimBooth() - Mục tiêu gian hàng số: %d", boothNum))
-    local claimSuccess = false
-    
-    local pcallStatusRemote, resultRemote = pcall(function()
-        screenPrint(string.format("attemptClaimBooth - Gọi Remotes.Event('ClaimBooth'):InvokeServer(%d)", boothNum))
-        Remotes.Event("ClaimBooth"):InvokeServer(boothNum)
-    end)
-
-    if not pcallStatusRemote then
-        screenPrint(string.format("attemptClaimBooth - <font color='rgb(255,100,100)'>Lỗi khi InvokeServer: %s</font>", tostring(resultRemote)))
-        return false
-    end
-    screenPrint("attemptClaimBooth - InvokeServer đã được gọi.")
-
-    task.wait(1) 
-
-    local boothUIFolder = _boothlocation:WaitForChild("BoothUI", 5)
-    if not boothUIFolder then screenPrint("attemptClaimBooth - <font color='rgb(255,100,100)'>Không tìm thấy BoothUIFolder để xác nhận.</font>"); return false end
-    screenPrint("attemptClaimBooth - Đã có BoothUIFolder.")
-
-    local uiFrame = boothUIFolder:FindFirstChild("BoothUI" .. tostring(boothNum))
-    if uiFrame and uiFrame:FindFirstChild("Details") and uiFrame.Details:FindFirstChild("Owner") and uiFrame.Details.Owner:IsA("TextLabel") then
-        local ownerText = uiFrame.Details.Owner.Text
-        screenPrint(string.format("attemptClaimBooth - Owner text của gian hàng %d là: '%s'", boothNum, ownerText))
-        if string.find(ownerText, LocalPlayer.DisplayName) then
-            screenPrint(string.format("<font color='rgb(100,255,100)'>attemptClaimBooth - CHIẾM THÀNH CÔNG gian hàng số %d</font>", boothNum))
-            claimSuccess = true
-        else
-            screenPrint("attemptClaimBooth - Xác nhận lần 1 thất bại. Thử lại sau 1s...")
-            task.wait(1)
-            ownerText = uiFrame.Details.Owner.Text 
-            screenPrint(string.format("attemptClaimBooth - Owner text lần 2 là: '%s'", ownerText))
-            if string.find(ownerText, LocalPlayer.DisplayName) then
-                screenPrint(string.format("<font color='rgb(100,255,100)'>attemptClaimBooth - CHIẾM THÀNH CÔNG (lần 2) gian hàng số %d</font>", boothNum))
-                claimSuccess = true
-            else
-                screenPrint("attemptClaimBooth - <font color='rgb(255,100,100)'>Xác nhận lần 2 cũng thất bại.</font>")
-            end
-        end
-    else
-        screenPrint(string.format("attemptClaimBooth - <font color='rgb(255,100,100)'>Không tìm thấy cấu trúc UI (Owner.Text) cho gian hàng %d để xác nhận.</font>", boothNum))
-    end
-    
-    return claimSuccess
-end
-
--- LUỒNG THỰC THI CHÍNH (Giữ nguyên như trước)
-screenPrint("Bắt đầu luồng thực thi chính (Tìm -> TP -> Claim)...")
-
-local pcallFindSuccess, pcallFindError = pcall(findUnclaimed)
-if not pcallFindSuccess then
-    screenPrint(string.format("<font color='rgb(255,100,100)'>Lỗi nghiêm trọng khi pcall(findUnclaimed): %s</font>", tostring(pcallFindError)))
-    return
-end
-screenPrint("pcall(findUnclaimed) đã chạy xong.")
-
-if not unclaimed[2] then 
-    screenPrint(string.format("<font color='rgb(255,200,0)'>KHÔNG có unclaimed[2]. Số gian hàng tìm thấy: %d. Script dừng.</font>", #unclaimed))
-    if #unclaimed > 0 then screenPrint(string.format("Gian hàng đầu tiên (unclaimed[1]) là: %s", tostring(unclaimed[1]))) end
-    return
-end
-
-local targetBoothNumber = unclaimed[2]
-screenPrint(string.format("Gian hàng mục tiêu (unclaimed[2]) là: %d", targetBoothNumber))
-
-if performTeleportToBooth(targetBoothNumber) then
-    screenPrint(string.format("Teleport đến gian hàng %d có vẻ thành công. Chuẩn bị claim...", targetBoothNumber))
-    
-    if attemptClaimBooth(targetBoothNumber) then
-        screenPrint(string.format("<font color='rgb(50,255,50)'>HOÀN TẤT: Đã teleport và chiếm thành công gian hàng %d</font>", targetBoothNumber))
-    else
-        screenPrint(string.format("<font color='rgb(255,100,100)'>Thất bại khi chiếm gian hàng %d sau khi đã teleport.</font>", targetBoothNumber))
-    end
-else
-    screenPrint(string.format("<font color='rgb(255,100,100)'>Thất bại khi teleport đến gian hàng %d. Không thể claim.</font>", targetBoothNumber))
-end
-
-screenPrint("<font color='rgb(200,200,200)'>Script siêu tối giản v2 đã hoàn tất một lượt chạy.</font>")
+-- ... (Phần còn lại của script: _boothlocation, findUnclaimed, teleport, claim...)
+-- Hãy đảm bảo bạn dán phần này vào đúng chỗ trong script "siêu tối giản v2" trước đó,
+-- thay thế cho vòng lặp tìm Remotes cũ.
