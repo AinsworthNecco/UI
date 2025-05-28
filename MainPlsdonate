@@ -1,6 +1,7 @@
 --[[
-    Script tập trung vào: Tìm Booth -> Teleport -> Claim
-    Dựa trên script đầy đủ bạn đã cung cấp.
+    Script được lọc lại từ script gốc hoạt động của bạn.
+    Mục tiêu: Tìm Booth -> Teleport đến đó -> Claim.
+    Lưu ý: Các phần không liên quan trực tiếp đến chuỗi hành động này đã được loại bỏ.
 ]]
 
 repeat
@@ -13,6 +14,7 @@ if game.PlaceId ~= 8737602449 and game.PlaceId ~= 8943844393 then
     return
 end
 
+-- Các services và khởi tạo cơ bản từ script gốc
 local identifyexecutor = identifyexecutor or function() return 'Unknown' end
 local cloneref = (identifyexecutor() ~= "Synapse Z" and not identifyexecutor():find("Codex") and cloneref) or function(o) return o end
 local CoreGui = cloneref(game:GetService("CoreGui"))
@@ -23,30 +25,22 @@ local ReplicatedStorage = cloneref(game:GetService("ReplicatedStorage"))
 if not workspace then
     workspace = game:GetService('Workspace')
 end
+local LocalPlayer = Players.LocalPlayer
 local Remotes
 
--- Tìm Remotes Module
+-- Tìm Remotes Module (từ script gốc)
 print("Đang tìm kiếm Remotes module...")
 for i, v in next, ReplicatedStorage:GetChildren() do
-    if v.Name:find('Remote') and v:IsA('ModuleScript') then -- Kiểm tra IsA đúng cách
+    if v.Name:find('Remote') and v:IsA('ModuleScript') then
         local remoteModule
         local successRequire = pcall(function() remoteModule = require(v) end)
         if successRequire and typeof(remoteModule) == "table" and remoteModule.Event then
-            -- Thử một event vô hại hơn nếu có, hoặc chỉ kiểm tra sự tồn tại của .Event
-            local sucEventTest = pcall(function()
-                -- Thay vì FireServer một event có thể có tác động,
-                -- chúng ta chỉ cần xác nhận module có cấu trúc mong đợi.
-                -- Nếu bạn biết một event "an toàn" để test, có thể dùng nó.
-                -- Hoặc, nếu việc require thành công và có hàm Event là đủ, thì không cần FireServer ở đây.
-                -- Ví dụ: chỉ cần remoteModule.Event("Test") mà không FireServer.
-                -- Để an toàn, chúng ta có thể bỏ qua việc FireServer ở bước tìm kiếm này.
-                -- require(v).Event('PromotionBlimpGiftbux'):FireServer() -- Dòng gốc có thể gây tác dụng phụ
-            end)
-            -- if sucEventTest then -- Dòng gốc dùng sucEventTest
+            -- Kiểm tra an toàn hơn cho sự tồn tại của một event cụ thể nếu cần
+            -- Script gốc của bạn có một lệnh FireServer thử nghiệm ở đây.
+            -- Để đảm bảo, chúng ta giả định rằng nếu require thành công và có 'Event', nó là đúng.
             Remotes = remoteModule
             print("Đã tìm thấy Remotes module:", v.Name)
             break
-            -- end
         end
     end
     task.wait()
@@ -57,7 +51,7 @@ if not Remotes then
     return
 end
 
--- Xác định _boothlocation
+-- Xác định _boothlocation (từ script gốc)
 local _shuffled = workspace:WaitForChild('MapUI', 3)
 local _shufflerandom = 0
 if not _shuffled then
@@ -66,125 +60,62 @@ end
 local _boothlocation
 if _shufflerandom == 1 then
     local successPcall = pcall(function()
-        _boothlocation = Players.LocalPlayer:WaitForChild('PlayerGui', 5):WaitForChild('MapUIContainer', 5):WaitForChild('MapUI', 5)
+        _boothlocation = LocalPlayer:WaitForChild('PlayerGui', 5):WaitForChild('MapUIContainer', 5):WaitForChild('MapUI', 5)
     end)
-    if not successPcall then
-        warn("Lỗi khi tìm _boothlocation trong PlayerGui.")
-    end
+    if not successPcall then warn("Lỗi khi tìm _boothlocation trong PlayerGui.") end
 else
     _boothlocation = _shuffled or workspace:WaitForChild('MapUI')
 end
 
 if not _boothlocation then
     warn("Không tìm thấy _boothlocation! Script không thể tiếp tục.")
-    -- serverHop() -- Bạn có thể gọi serverHop ở đây nếu muốn
+    -- serverHop() -- Bạn có thể thêm lại hàm serverHop đầy đủ nếu muốn
     return
 end
 print("_boothlocation được xác định là:", _boothlocation:GetFullName())
 
--- Các biến cần thiết khác
+-- Các biến cần thiết khác từ script gốc
 local unclaimed = {}
 local mainCheckPosition = Vector3.new(165.161, 0, 311.636)
-local LocalPlayer = Players.LocalPlayer
+local getgenv_settings = getgenv().settings -- Giả định getgenv().settings đã được thiết lập bởi phần UI của script gốc
 
--- Hàm serverHop (từ script gốc, có thể cần điều chỉnh nếu httprequest không hoạt động như mong đợi)
+-- Hàm serverHop (phiên bản đơn giản hóa, bạn có thể thay thế bằng hàm đầy đủ từ script gốc nếu cần)
 local httprequest = (syn and syn.request) or http and http.request or http_request or (fluxus and fluxus.request) or request
-
-local function serverHop()
-    print("Đang thực hiện serverHop...")
-    local serverst = {}
-    local placeId = 8737602449 -- Mặc định, có thể điều chỉnh nếu cần
-    -- local placeId = choosePlaceId() -- choosePlaceId từ script gốc dựa vào settings, ở đây ta dùng mặc định
-
-    local cursor = nil
-    local attempts = 0
-    local maxAttempts = 5 -- Giới hạn số lần thử fetch server list
-
-    repeat
-        attempts = attempts + 1
-        if attempts > maxAttempts then
-            warn("Đã đạt tối đa số lần thử fetch server list.")
-            break
-        end
-
-        local url = ("https://games.roblox.com/v1/games/%d/servers/Public?sortOrder=Asc&limit=100%s")
-            :format(placeId, cursor and "&cursor=" .. cursor or "")
-
-        local response
-        local successHttp, resultHttp = pcall(function()
-            response = httprequest({ Url = url, Method = "GET" })
-        end)
-
-        if not successHttp or not response or response.StatusCode ~= 200 then
-            warn("Thất bại khi lấy danh sách server:", response and response.StatusMessage or resultHttp or "Không có phản hồi")
-            task.wait(2) -- Chờ trước khi thử lại
-            cursor = nil -- Reset cursor để thử lại từ đầu trang nếu cần
-            goto continue_loop -- Nhảy đến cuối vòng lặp để thử lại
-        end
-
-        local data
-        local successDecode, resultDecode = pcall(function()
-            data = HttpService:JSONDecode(response.Body)
-        end)
-
-        if not successDecode then
-            warn("Lỗi JSONDecode:", resultDecode)
-            cursor = nil
-            goto continue_loop
-        end
-        
-        cursor = data.nextPageCursor
-
-        if data and data.data then
-            for _, server in ipairs(data.data) do
-                if server.playing < server.maxPlayers and server.playing > 11 then -- Điều kiện từ script gốc
-                    table.insert(serverst, server.id)
-                end
-                if #serverst > 5 then break end -- Lấy một vài server để thử
-            end
-        end
-        
-        if #serverst > 0 then break end -- Thoát nếu đã có server
-        
-        ::continue_loop::
-        task.wait(0.5)
-    until not cursor or #serverst > 0
-
-    if #serverst > 0 then
-        local targetServerId = serverst[math.random(1, #serverst)]
-        print("Đang dịch chuyển đến server:", targetServerId)
-        pcall(TPService.TeleportToPlaceInstance, TPService, placeId, targetServerId, LocalPlayer)
-    else
-        warn("Không tìm thấy server phù hợp để hop.")
-    end
+local function serverHop(reason)
+    print("Yêu cầu ServerHop:", reason or "Không rõ lý do")
+    -- Để đơn giản, hàm này chỉ in ra. Trong script gốc, nó phức tạp hơn.
+    -- Nếu bạn muốn chức năng hop đầy đủ, bạn cần copy toàn bộ hàm forceServerHop hoặc serverHop từ script gốc.
+    -- Ví dụ:
+    -- TPService:TeleportToPlaceInstance(8737602449, "JOB_ID_RANDOM", LocalPlayer)
+    warn("Đã gọi serverHop (phiên bản placeholder). Cần triển khai đầy đủ nếu muốn tự động hop.")
 end
-
+local function hopSet() -- Placeholder, vì nó được gọi sau claim thành công trong script gốc
+    print("hopSet() được gọi.")
+end
 
 -- HÀM TÌM GIAN HÀNG CHƯA CÓ NGƯỜI (từ script gốc)
 local function findUnclaimed()
-    unclaimed = {} -- Reset
-    local boothUIFolder = _boothlocation:WaitForChild("BoothUI", 10)
-    local interactionsFolder = workspace:WaitForChild("BoothInteractions", 10)
-
-    if not boothUIFolder then warn("Không tìm thấy BoothUI trong _boothlocation"); return end
-    if not interactionsFolder then warn("Không tìm thấy BoothInteractions trong workspace"); return end
+    unclaimed = {}
+    local boothUI = _boothlocation:WaitForChild("BoothUI", 10)
+    local interactions = workspace:WaitForChild("BoothInteractions", 10)
+    if not boothUI then warn("findUnclaimed: Không tìm thấy BoothUI"); return false end
+    if not interactions then warn("findUnclaimed: Không tìm thấy BoothInteractions"); return false end
 
     local mainPos2D = Vector3.new(mainCheckPosition.X, 0, mainCheckPosition.Z)
-
-    print("Đang tìm kiếm gian hàng chưa có người...")
-    for _, uiFrame in ipairs(boothUIFolder:GetChildren()) do
+    print("findUnclaimed: Đang quét gian hàng...")
+    for _, uiFrame in ipairs(boothUI:GetChildren()) do
         if uiFrame:IsA("Frame") and uiFrame:FindFirstChild("Details") and uiFrame.Details:FindFirstChild("Owner") and uiFrame.Details.Owner:IsA("TextLabel") then
             if uiFrame.Details.Owner.Text == "unclaimed" then
                 local boothNumMatch = uiFrame.Name:match("%d+")
                 if boothNumMatch then
                     local boothNum = tonumber(boothNumMatch)
                     if boothNum then
-                        for _, interactPart in ipairs(interactionsFolder:GetChildren()) do
-                            if interactPart:IsA("BasePart") and interactPart:GetAttribute("BoothSlot") == boothNum then
-                                local pos2D = Vector3.new(interactPart.Position.X, 0, interactPart.Position.Z)
+                        for _, interact in ipairs(interactions:GetChildren()) do
+                            if interact:IsA("BasePart") and interact:GetAttribute("BoothSlot") == boothNum then
+                                local pos2D = Vector3.new(interact.Position.X, 0, interact.Position.Z)
                                 if (pos2D - mainPos2D).Magnitude < 92 then
                                     table.insert(unclaimed, boothNum)
-                                    print("Tìm thấy gian hàng chưa có người số " .. boothNum .. " trong phạm vi.")
+                                    -- print("findUnclaimed: Tìm thấy gian hàng số " .. boothNum)
                                     break
                                 end
                             end
@@ -194,97 +125,125 @@ local function findUnclaimed()
             end
         end
     end
-    if #unclaimed == 0 then
-        print("Không tìm thấy gian hàng nào chưa có người trong phạm vi.")
-    else
-        print("Danh sách gian hàng chưa có người đã tìm thấy: ", table.concat(unclaimed, ", "))
-    end
+    print("findUnclaimed: Hoàn tất quét. Số gian hàng chưa có người:", #unclaimed, table.concat(unclaimed, ", "))
+    return true
 end
 
--- HÀM CHÍNH: TÌM, TELEPORT VÀ CLAIM
-local function findTeleportAndClaim()
-    local successFind, errFind = pcall(findUnclaimed)
-    if not successFind then
-        warn("Lỗi khi chạy findUnclaimed:", errFind)
-        return
-    end
-
-    if #unclaimed == 0 then
-        print("Không có gian hàng nào để thử. Kết thúc hoặc thử serverHop.")
-        -- serverHop() -- Tùy chọn: tự động hop nếu không tìm thấy
-        return
-    end
-
-    -- Ưu tiên gian hàng đầu tiên tìm được cho sự đơn giản
-    local targetBoothNum = unclaimed[1]
-    print("Mục tiêu là gian hàng số: " .. targetBoothNum)
-
+-- HÀM TELEPORT ĐẾN GIAN HÀNG CỤ THỂ
+local function performTeleportToBooth(boothNum)
+    print("performTeleportToBooth: Đang tìm CFrame cho gian hàng số", boothNum)
     local character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
     local rootPart = character:WaitForChild("HumanoidRootPart", 5)
-    if not rootPart then
-        warn("Không tìm thấy HumanoidRootPart.")
-        return
-    end
+    if not rootPart then warn("performTeleportToBooth: Không tìm thấy HumanoidRootPart."); return false end
 
-    -- Lấy CFrame của điểm tương tác gian hàng
-    local interactionsFolder = workspace:WaitForChild("BoothInteractions", 5)
-    if not interactionsFolder then warn("Không tìm thấy interactionsFolder"); return end
-    local targetBoothInteractionCFrame
-    for _, interactPartCandidate in ipairs(interactionsFolder:GetChildren()) do
-        if interactPartCandidate:IsA("BasePart") and interactPartCandidate:GetAttribute("BoothSlot") == targetBoothNum then
-            targetBoothInteractionCFrame = interactPartCandidate.CFrame
-            print("Đã tìm thấy CFrame của điểm tương tác cho gian hàng " .. targetBoothNum .. " tại vị trí: " .. tostring(targetBoothInteractionCFrame.Position))
+    local interactions = workspace:WaitForChild("BoothInteractions", 5)
+    if not interactions then warn("performTeleportToBooth: Không tìm thấy BoothInteractions."); return false end
+
+    local boothInteractionCFrame
+    for _, v in ipairs(interactions:GetChildren()) do
+        if v:IsA("BasePart") and v:GetAttribute("BoothSlot") == boothNum then
+            boothInteractionCFrame = v.CFrame -- Đây là CFrame của điểm tương tác
+            print("performTeleportToBooth: Tìm thấy CFrame cho gian hàng", boothNum, "tại", boothInteractionCFrame.Position)
             break
         end
     end
 
-    if not targetBoothInteractionCFrame then
-        warn("Không tìm thấy CFrame của điểm tương tác cho gian hàng: " .. targetBoothNum)
-        return
-    end
-
-    -- Thực hiện Teleport
-    print("Đang dịch chuyển đến gian hàng " .. targetBoothNum .. "...")
-    rootPart.CFrame = targetBoothInteractionCFrame
-    task.wait(0.5) -- Đợi một chút để việc dịch chuyển ổn định
-
-    -- Thực hiện Claim
-    print("Đang thử chiếm gian hàng " .. targetBoothNum .. " sau khi teleport.")
-    local claimAttemptSuccess, claimResult = pcall(function()
-        return Remotes.Event("ClaimBooth"):InvokeServer(targetBoothNum)
-    end)
-
-    if not claimAttemptSuccess then
-        warn("Lỗi khi gọi InvokeServer để chiếm gian hàng: " .. tostring(claimResult))
-        return
-    end
-    
-    task.wait(0.5) -- Đợi server cập nhật UI
-
-    -- Kiểm tra lại chủ sở hữu trên UI
-    local boothUIFolder = _boothlocation:WaitForChild("BoothUI", 5)
-    if not boothUIFolder then warn("Không tìm thấy boothUIFolder để xác nhận claim"); return end
-
-    local ownerTextUI = boothUIFolder:FindFirstChild("BoothUI" .. tostring(targetBoothNum))
-    if ownerTextUI and ownerTextUI:FindFirstChild("Details") and ownerTextUI.Details:FindFirstChild("Owner") and ownerTextUI.Details.Owner:IsA("TextLabel") then
-        if string.find(ownerTextUI.Details.Owner.Text, LocalPlayer.DisplayName) then
-            print("ĐÃ CHIẾM THÀNH CÔNG GIAN HÀNG " .. targetBoothNum .. "!")
-            -- Các hành động khác sau khi thành công (ví dụ: hopSet() nếu bạn giữ lại hàm đó)
-        else
-            print("CHIẾM GIAN HÀNG " .. targetBoothNum .. " THẤT BẠI (Xác nhận chủ sở hữu không đúng: '" .. ownerTextUI.Details.Owner.Text .. "').")
-        end
+    if boothInteractionCFrame then
+        print("performTeleportToBooth: Đang dịch chuyển đến gian hàng", boothNum)
+        rootPart.CFrame = boothInteractionCFrame
+        task.wait(0.3) -- Chờ cho teleport ổn định
+        return true
     else
-        warn("Không tìm thấy UI để xác nhận quyền sở hữu cho gian hàng " .. targetBoothNum .. " sau khi claim.")
+        warn("performTeleportToBooth: Không tìm thấy CFrame cho gian hàng", boothNum)
+        return false
     end
 end
 
--- CHẠY SCRIPT
-print("Bắt đầu script (phiên bản tập trung)...")
-findTeleportAndClaim()
-print("Script (phiên bản tập trung) đã hoàn tất một lượt chạy.")
+-- HÀM CHIẾM GIAN HÀNG CỤ THỂ
+local function attemptClaimBooth(boothNum)
+    print("attemptClaimBooth: Đang thử chiếm gian hàng số", boothNum)
+    local claimSuccess = false
+    local pcallStatus, result = pcall(function()
+        Remotes.Event("ClaimBooth"):InvokeServer(boothNum) -- Gửi yêu cầu claim
+    end)
 
--- Bạn có thể đặt findTeleportAndClaim() trong một vòng lặp nếu muốn nó chạy liên tục
--- Ví dụ:
--- while task.wait(60) do -- Chạy mỗi 60 giây
---    findTeleportAndClaim()
--- end
+    if not pcallStatus then
+        warn("attemptClaimBooth: Lỗi khi gọi InvokeServer('ClaimBooth'):", result)
+        return false
+    end
+
+    task.wait(0.5) -- Chờ server xử lý và UI cập nhật
+
+    -- Xác nhận claim qua UI (quan trọng, từ script gốc)
+    local boothUI = _boothlocation:WaitForChild("BoothUI", 5)
+    if not boothUI then warn("attemptClaimBooth: Không tìm thấy BoothUI để xác nhận."); return false end
+    local uiFrame = boothUI:FindFirstChild("BoothUI" .. tostring(boothNum))
+
+    if uiFrame and uiFrame:FindFirstChild("Details") and uiFrame.Details:FindFirstChild("Owner") and uiFrame.Details.Owner:IsA("TextLabel") then
+        if string.find(uiFrame.Details.Owner.Text, LocalPlayer.DisplayName) then
+            print("attemptClaimBooth: CHIẾM THÀNH CÔNG gian hàng số", boothNum)
+            claimSuccess = true
+        else
+            print("attemptClaimBooth: Xác nhận thất bại. Owner text:", uiFrame.Details.Owner.Text)
+            -- Thử kiểm tra lại một lần nữa sau một khoảng chờ ngắn hơn (logic từ script gốc)
+            task.wait(1)
+            if string.find(uiFrame.Details.Owner.Text, LocalPlayer.DisplayName) then
+                 print("attemptClaimBooth: CHIẾM THÀNH CÔNG (sau lần kiểm tra thứ 2) gian hàng số", boothNum)
+                 claimSuccess = true
+            else
+                 print("attemptClaimBooth: Xác nhận lần 2 thất bại. Owner text:", uiFrame.Details.Owner.Text)
+            end
+        end
+    else
+        warn("attemptClaimBooth: Không tìm thấy cấu trúc UI cần thiết để xác nhận cho gian hàng", boothNum)
+    end
+    
+    return claimSuccess
+end
+
+-- LUỒNG THỰC THI CHÍNH (TÌM -> TELEPORT -> CLAIM)
+print("Bắt đầu script (phiên bản lọc từ script gốc hoạt động)...")
+
+if not pcall(findUnclaimed) then
+    warn("Lỗi nghiêm trọng khi chạy findUnclaimed ban đầu.")
+    serverHop("Lỗi findUnclaimed")
+    return
+end
+
+-- Script gốc của bạn dựa vào unclaimed[2]. Chúng ta sẽ giữ logic này.
+if not unclaimed[2] then
+    print("Không tìm thấy đủ 2 gian hàng chưa có người (theo logic script gốc). Số gian hàng tìm thấy:", #unclaimed)
+    serverHop("Không đủ gian hàng (cần unclaimed[2])")
+    return
+end
+
+local targetBoothNumber = unclaimed[2] -- Sử dụng unclaimed[2] như script gốc
+print("Mục tiêu là gian hàng số (unclaimed[2]):", targetBoothNumber)
+
+-- Bước 1: Teleport đến gian hàng mục tiêu
+if performTeleportToBooth(targetBoothNumber) then
+    print("Đã teleport thành công đến gian hàng", targetBoothNumber, ". Chuẩn bị claim...")
+    task.wait(0.5) -- Thêm chút thời gian chờ sau teleport trước khi claim
+
+    -- Bước 2: Claim gian hàng
+    if attemptClaimBooth(targetBoothNumber) then
+        print("QUÁ TRÌNH HOÀN TẤT: Đã teleport và chiếm thành công gian hàng", targetBoothNumber)
+        hopSet() -- Gọi hopSet như trong script gốc sau khi claim thành công
+        
+        -- Phần còn lại của walkToBooth từ script gốc (tinh chỉnh vị trí, nhảy múa) có thể được thêm vào đây nếu muốn.
+        -- Ví dụ:
+        -- local originalWalkToBooth = getgenv().walkToBooth -- Nếu hàm này vẫn còn trong getgenv()
+        -- if originalWalkToBooth and type(originalWalkToBooth) == "function" then
+        --    print("Gọi phần còn lại của walkToBooth để tinh chỉnh vị trí/nhảy múa...")
+        --    originalWalkToBooth() -- Sẽ cần đảm bảo 'bclaimed' và các biến khác được set đúng
+        -- end
+    else
+        print("Thất bại khi chiếm gian hàng", targetBoothNumber, "sau khi đã teleport.")
+        -- serverHop("Claim thất bại sau teleport") -- Tùy chọn
+    end
+else
+    print("Thất bại khi teleport đến gian hàng", targetBoothNumber, ". Không thể claim.")
+    serverHop("Teleport thất bại") -- Tùy chọn
+end
+
+print("Script (phiên bản lọc) đã hoàn tất một lượt chạy.")
