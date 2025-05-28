@@ -1,21 +1,193 @@
-local Window = Rayfield:CreateWindow({
-   Name = "Neco Lychkin's Project",
-   LoadingTitle = "Neco Lychkin's Project",
-   LoadingSubtitle = "By Neco",
-   Theme = "Light", -- Tùy chỉnh giao diện (Light/Dark)
-   ToggleUIKeybind = "K", -- Phím tắt để bật/tắt giao diện
+--[[
+    SCRIPT CƠ BẢN TỰ ĐỘNG NHẬN BOOTH TRONG ROBLOX
+    Mục đích: Tìm và tự động claim một booth trống.
+    Sử dụng với Executor.
+]]
 
-   ConfigurationSaving = {
-      Enabled = true,
-      FolderName = "Pls Donate", -- Đặt tên thư mục lưu cài đặt
-      FileName = "SettingPlsDonate" -- Tên file lưu cài đặt
-   },
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Workspace = game:GetService("Workspace")
 
-   Discord = {
-      Enabled = false, -- Không sử dụng tính năng Discord
-      Invite = "noinvitelink", 
-      RememberJoins = true
-   },
+local localPlayer = Players.LocalPlayer
 
-   KeySystem = false -- Không sử dụng hệ thống key
-})
+print("--- Script Tự Động Nhận Booth Cơ Bản Đang Chạy ---")
+
+-- 1. TÌM MODULE REMOTES
+local Remotes
+print("[Nhận Booth] Đang tìm module Remotes...")
+for _, moduleInstance in ipairs(ReplicatedStorage:GetChildren()) do
+    if moduleInstance.Name:find('Remote', 1, true) and moduleInstance:IsA('ModuleScript') then
+        local success, remoteMod = pcall(require, moduleInstance)
+        if success and remoteMod and typeof(remoteMod.Event) == "function" then
+            -- Kiểm tra sơ bộ xem có phải module Remotes không bằng cách thử truy cập một event thường có
+            -- (Không thực sự Fire event ở đây để tránh tác dụng phụ không mong muốn khi chỉ tìm module)
+            local couldBeRemotes = pcall(function() return remoteMod.Event(remoteMod, "ClaimBooth") end)
+            if couldBeRemotes then
+                 Remotes = remoteMod
+                 print("[Nhận Booth] Đã tìm thấy module Remotes:", moduleInstance.Name)
+                 break
+            end
+        end
+    end
+    task.wait(0.05)
+end
+
+if not Remotes then
+    warn("[Nhận Booth] LỖI: Không tìm thấy module Remotes! Script không thể tiếp tục.")
+    return
+end
+
+-- 2. CÁC BIẾN VÀ HÀM HỖ TRỢ
+local unclaimedBoothsList = {}
+local mainCheckPosition = Vector3.new(165.161, 0, 311.636) -- Vị trí trung tâm để tìm booth (giống script gốc)
+local boothSearchRadius = 100 -- Bán kính tìm kiếm booth quanh vị trí trung tâm
+
+local boothLocationUI = Workspace:WaitForChild("MapUI", 10) -- Nơi chứa UI các booth trong Workspace
+if not boothLocationUI then
+    -- Thử tìm trong PlayerGui nếu không thấy trong Workspace
+    local playerGui = localPlayer and localPlayer:WaitForChild("PlayerGui", 5)
+    boothLocationUI = playerGui and playerGui:WaitForChild("MapUIContainer", 5) and playerGui.MapUIContainer:FindFirstChild("MapUI")
+end
+
+if not boothLocationUI then
+    warn("[Nhận Booth] LỖI: Không tìm thấy 'MapUI' (nơi chứa UI các booth).")
+    return
+end
+
+local boothUIDetailsContainer = boothLocationUI:FindFirstChild("BoothUI")
+local boothInteractionsContainer = Workspace:FindFirstChild("BoothInteractions")
+
+if not boothUIDetailsContainer then
+    warn("[Nhận Booth] LỖI: Không tìm thấy 'BoothUI' bên trong 'MapUI'.")
+    return
+end
+if not boothInteractionsContainer then
+    warn("[Nhận Booth] LỖI: Không tìm thấy 'BoothInteractions' trong Workspace.")
+    return
+end
+
+-- Hàm tìm booth trống
+local function findNearbyUnclaimedBooths()
+    unclaimedBoothsList = {} -- Reset danh sách
+    print("[Nhận Booth] Đang quét tìm booth trống gần vị trí trung tâm...")
+
+    local mainPos2D = Vector2.new(mainCheckPosition.X, mainCheckPosition.Z)
+
+    for _, uiFrame in ipairs(boothUIDetailsContainer:GetChildren()) do
+        if uiFrame:IsA("Frame") and uiFrame:FindFirstChild("Details") and uiFrame.Details:FindFirstChild("Owner") then
+            if uiFrame.Details.Owner.Text:lower() == "unclaimed" then
+                local boothNumStr = uiFrame.Name:match("%d+")
+                if boothNumStr then
+                    local boothNum = tonumber(boothNumStr)
+                    for _, interactPoint in ipairs(boothInteractionsContainer:GetChildren()) do
+                        if interactPoint:GetAttribute("BoothSlot") == boothNum then
+                            local boothPos2D = Vector2.new(interactPoint.Position.X, interactPoint.Position.Z)
+                            if (boothPos2D - mainPos2D).Magnitude < boothSearchRadius then
+                                table.insert(unclaimedBoothsList, {id = boothNum, position = interactPoint.Position})
+                                print("[Nhận Booth] Tìm thấy booth trống tiềm năng #" .. boothNum)
+                            end
+                            break
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    -- Sắp xếp các booth tìm được theo khoảng cách đến người chơi (gần nhất trước)
+    if localPlayer.Character and localPlayer.Character:FindFirstChild("HumanoidRootPart") then
+        local playerPos = localPlayer.Character.HumanoidRootPart.Position
+        table.sort(unclaimedBoothsList, function(a, b)
+            return (a.position - playerPos).Magnitude < (b.position - playerPos).Magnitude
+        end)
+    end
+
+    if #unclaimedBoothsList > 0 then
+        print("[Nhận Booth] Tìm thấy tổng cộng " .. #unclaimedBoothsList .. " booth trống phù hợp. Sẽ thử claim booth gần nhất.")
+    else
+        print("[Nhận Booth] Không tìm thấy booth nào trống trong phạm vi.")
+    end
+end
+
+-- 3. HÀM THỰC HIỆN CLAIM BOOTH
+local function attemptToClaimBooth(boothIdToClaim)
+    if not boothIdToClaim then
+        warn("[Nhận Booth] LỖI: Không có booth ID để claim.")
+        return false
+    end
+
+    print("[Nhận Booth] Đang gửi yêu cầu nhận booth #" .. boothIdToClaim .. "...")
+    local successCall, result = pcall(function()
+        -- Tên RemoteEvent có thể là "ClaimBooth" hoặc tương tự
+        Remotes.Event("ClaimBooth"):InvokeServer(boothIdToClaim)
+    end)
+
+    if not successCall then
+        warn("[Nhận Booth] LỖI khi gọi RemoteEvent 'ClaimBooth':", tostring(result))
+        return false
+    end
+
+    task.wait(1.5) -- Chờ server xử lý và UI game cập nhật
+
+    -- Kiểm tra xem đã nhận thành công chưa
+    local claimedBoothUIFrame = boothUIDetailsContainer:FindFirstChild("BoothUI" .. boothIdToClaim)
+    if claimedBoothUIFrame and claimedBoothUIFrame:FindFirstChild("Details") and claimedBoothUIFrame.Details:FindFirstChild("Owner") then
+        local ownerText = claimedBoothUIFrame.Details.Owner.Text:lower()
+        local playerNameLower = localPlayer.Name:lower()
+        local playerDisplayNameLower = localPlayer.DisplayName:lower()
+
+        if ownerText:find(playerDisplayNameLower) or ownerText:find(playerNameLower) then
+            print("[Nhận Booth] THÀNH CÔNG! Đã nhận được booth #" .. boothIdToClaim .. "! 🎉")
+            getgenv().claimedBoothID_Basic = boothIdToClaim -- Lưu lại ID booth đã claim nếu cần dùng sau
+            return true
+        else
+            print("[Nhận Booth] Không thể xác minh việc nhận booth #" .. boothIdToClaim .. ". Owner hiện tại: " .. claimedBoothUIFrame.Details.Owner.Text)
+            return false
+        end
+    else
+        warn("[Nhận Booth] Không tìm thấy UI của booth #" .. boothIdToClaim .. " sau khi thử nhận để xác minh.")
+        return false
+    end
+end
+
+-- 4. LOGIC CHÍNH ĐỂ CHẠY
+local function main()
+    if not localPlayer or not localPlayer.Character then
+        warn("[Nhận Booth] LỖI: Không tìm thấy người chơi hoặc nhân vật.")
+        return
+    end
+
+    findNearbyUnclaimedBooths()
+
+    if #unclaimedBoothsList == 0 then
+        print("[Nhận Booth] Không có booth nào để thử nhận.")
+        return
+    end
+
+    local claimedSuccessfully = false
+    for _, boothInfo in ipairs(unclaimedBoothsList) do
+        if attemptToClaimBooth(boothInfo.id) then
+            claimedSuccessfully = true
+            -- (Tùy chọn) Di chuyển đến booth sau khi claim thành công
+            -- if localPlayer.Character and localPlayer.Character:FindFirstChild("HumanoidRootPart") and boothInfo.position then
+            --     print("[Nhận Booth] Đang di chuyển đến booth...")
+            --     local humanoid = localPlayer.Character:FindFirstChildOfClass("Humanoid")
+            --     if humanoid then
+            --         humanoid:MoveTo(boothInfo.position + Vector3.new(0,0,3)) -- Đứng trước booth
+            --     end
+            -- end
+            break -- Dừng lại sau khi claim thành công một booth
+        else
+            print("[Nhận Booth] Thất bại với booth #" .. boothInfo.id .. ". Thử booth tiếp theo nếu có...")
+            task.wait(0.5) -- Đợi một chút trước khi thử booth khác
+        end
+    end
+
+    if not claimedSuccessfully then
+        print("[Nhận Booth] Không thể nhận được booth nào trong danh sách đã tìm thấy.")
+    end
+    print("--- Script Tự Động Nhận Booth Cơ Bản Đã Chạy Xong ---")
+end
+
+-- Chạy hàm chính
+main()
