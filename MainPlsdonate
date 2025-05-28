@@ -1,193 +1,356 @@
 --[[
-    SCRIPT CƠ BẢN TỰ ĐỘNG NHẬN BOOTH TRONG ROBLOX
-    Mục đích: Tìm và tự động claim một booth trống.
-    Sử dụng với Executor.
+    SCRIPT RAYFIELD UI - TAB BOOTH (Xây dựng từng phần)
+    Phiên bản: 1.1 (Sửa lỗi thiếu tạo Window)
 ]]
 
+-- Tải Rayfield UI (sử dụng link bạn cung cấp)
+local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
+if not Rayfield then
+    -- Thông báo lỗi cơ bản nếu không tải được Rayfield
+    local coreGui = game:GetService("CoreGui")
+    local errGui = Instance.new("ScreenGui", coreGui)
+    errGui.Name = "RayfieldLoadErrorGUI" -- Đặt tên để dễ debug
+    local errLabel = Instance.new("TextLabel", errGui)
+    errLabel.Size = UDim2.new(1,0,1,0); errLabel.TextScaled = true
+    errLabel.TextColor3 = Color3.new(1,0,0); errLabel.BackgroundColor3 = Color3.new(0,0,0)
+    errLabel.BackgroundTransparency = 0.3
+    errLabel.Text = "LỖI NGHIÊM TRỌNG: Không thể tải Rayfield UI!\nKiểm tra lại link ('https://sirius.menu/rayfield') hoặc kết nối mạng.\nScript sẽ không hoạt động."
+    errLabel.ZIndex = 1000 -- Đảm bảo hiển thị trên cùng
+    if game:GetService("Players").LocalPlayer then
+       -- Không kick ngay, để người dùng có thể thấy lỗi UI
+       -- game:GetService("Players").LocalPlayer:Kick("Không thể tải Rayfield UI.")
+    end
+    return
+end
+
+-- Các services cần thiết
 local Players = game:GetService("Players")
+local HttpService = game:GetService("HttpService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local Workspace = game:GetService("Workspace")
+local CoreGui = game:GetService("CoreGui") -- Thêm CoreGui nếu PlayerGui chưa sẵn sàng
+if not workspace then workspace = game:GetService("Workspace") end
 
 local localPlayer = Players.LocalPlayer
+-- Fallback an toàn hơn cho newRaisedFormat
+local newRaisedFormat
+if localPlayer and localPlayer:FindFirstChild('leaderstats') and localPlayer.leaderstats:FindFirstChild('Raised') then
+    newRaisedFormat = localPlayer.leaderstats.Raised
+else
+    newRaisedFormat = {Value = 0} -- Object giả lập nếu không tìm thấy
+    warn("RAYFIELD_BOOTH: Không tìm thấy leaderstats 'Raised'. Giá trị Raised sẽ là 0.")
+end
 
-print("--- Script Tự Động Nhận Booth Cơ Bản Đang Chạy ---")
 
--- 1. TÌM MODULE REMOTES
+-- Tìm Remotes (quan trọng cho updateBoothText)
 local Remotes
-print("[Nhận Booth] Đang tìm module Remotes...")
-for _, moduleInstance in ipairs(ReplicatedStorage:GetChildren()) do
-    if moduleInstance.Name:find('Remote', 1, true) and moduleInstance:IsA('ModuleScript') then
-        local success, remoteMod = pcall(require, moduleInstance)
-        if success and remoteMod and typeof(remoteMod.Event) == "function" then
-            -- Kiểm tra sơ bộ xem có phải module Remotes không bằng cách thử truy cập một event thường có
-            -- (Không thực sự Fire event ở đây để tránh tác dụng phụ không mong muốn khi chỉ tìm module)
-            local couldBeRemotes = pcall(function() return remoteMod.Event(remoteMod, "ClaimBooth") end)
-            if couldBeRemotes then
-                 Remotes = remoteMod
-                 print("[Nhận Booth] Đã tìm thấy module Remotes:", moduleInstance.Name)
-                 break
+pcall(function()
+    for i,v_module in ipairs(ReplicatedStorage:GetChildren()) do
+        if v_module.Name:find('Remote') and v_module:IsA('ModuleScript') then
+            local success, remoteMod = pcall(require, v_module)
+            if success and remoteMod and typeof(remoteMod.Event) == "function" then
+                Remotes = remoteMod
+                print("RAYFIELD_BOOTH: Remotes module found:", v_module.Name)
+                break
             end
         end
+        task.wait(0.05)
     end
-    task.wait(0.05)
-end
+end)
 
 if not Remotes then
-    warn("[Nhận Booth] LỖI: Không tìm thấy module Remotes! Script không thể tiếp tục.")
-    return
+    Rayfield:Notify("Lỗi Remotes", "Không tìm thấy module Remotes. Một số tính năng có thể không hoạt động.", 7, Enum.RayfieldNotifyInfoType.Error)
 end
 
--- 2. CÁC BIẾN VÀ HÀM HỖ TRỢ
-local unclaimedBoothsList = {}
-local mainCheckPosition = Vector3.new(165.161, 0, 311.636) -- Vị trí trung tâm để tìm booth (giống script gốc)
-local boothSearchRadius = 100 -- Bán kính tìm kiếm booth quanh vị trí trung tâm
+-- ===== HỆ THỐNG CÀI ĐẶT (Cho Tab Booth) =====
+local settingsLock = true
+getgenv().settings = getgenv().settings or {}
 
-local boothLocationUI = Workspace:WaitForChild("MapUI", 10) -- Nơi chứa UI các booth trong Workspace
-if not boothLocationUI then
-    -- Thử tìm trong PlayerGui nếu không thấy trong Workspace
-    local playerGui = localPlayer and localPlayer:WaitForChild("PlayerGui", 5)
-    boothLocationUI = playerGui and playerGui:WaitForChild("MapUIContainer", 5) and playerGui.MapUIContainer:FindFirstChild("MapUI")
-end
+local boothTabSettings_Names = {
+    "textUpdateToggle", "textUpdateDelay", "hexBox", "goalBox",
+    "customBoothText", "fontFace", "standingPosition", "boothPosition",
+    "jumpsPerRobux" -- Thêm setting này vì updateBoothText dùng đến
+}
+local boothTabSettings_Defaults = {
+    true, 30, "#32CD32", 5,
+    "❤️ Cảm ơn đã ghé qua!\n💲 Donate để ủng hộ mình nha!\n$C/$G", "SciFi", "Front", 3,
+    1 -- Default cho jumpsPerRobux
+}
 
-if not boothLocationUI then
-    warn("[Nhận Booth] LỖI: Không tìm thấy 'MapUI' (nơi chứa UI các booth).")
-    return
-end
-
-local boothUIDetailsContainer = boothLocationUI:FindFirstChild("BoothUI")
-local boothInteractionsContainer = Workspace:FindFirstChild("BoothInteractions")
-
-if not boothUIDetailsContainer then
-    warn("[Nhận Booth] LỖI: Không tìm thấy 'BoothUI' bên trong 'MapUI'.")
-    return
-end
-if not boothInteractionsContainer then
-    warn("[Nhận Booth] LỖI: Không tìm thấy 'BoothInteractions' trong Workspace.")
-    return
-end
-
--- Hàm tìm booth trống
-local function findNearbyUnclaimedBooths()
-    unclaimedBoothsList = {} -- Reset danh sách
-    print("[Nhận Booth] Đang quét tìm booth trống gần vị trí trung tâm...")
-
-    local mainPos2D = Vector2.new(mainCheckPosition.X, mainCheckPosition.Z)
-
-    for _, uiFrame in ipairs(boothUIDetailsContainer:GetChildren()) do
-        if uiFrame:IsA("Frame") and uiFrame:FindFirstChild("Details") and uiFrame.Details:FindFirstChild("Owner") then
-            if uiFrame.Details.Owner.Text:lower() == "unclaimed" then
-                local boothNumStr = uiFrame.Name:match("%d+")
-                if boothNumStr then
-                    local boothNum = tonumber(boothNumStr)
-                    for _, interactPoint in ipairs(boothInteractionsContainer:GetChildren()) do
-                        if interactPoint:GetAttribute("BoothSlot") == boothNum then
-                            local boothPos2D = Vector2.new(interactPoint.Position.X, interactPoint.Position.Z)
-                            if (boothPos2D - mainPos2D).Magnitude < boothSearchRadius then
-                                table.insert(unclaimedBoothsList, {id = boothNum, position = interactPoint.Position})
-                                print("[Nhận Booth] Tìm thấy booth trống tiềm năng #" .. boothNum)
-                            end
-                            break
-                        end
-                    end
-                end
-            end
-        end
-    end
-
-    -- Sắp xếp các booth tìm được theo khoảng cách đến người chơi (gần nhất trước)
-    if localPlayer.Character and localPlayer.Character:FindFirstChild("HumanoidRootPart") then
-        local playerPos = localPlayer.Character.HumanoidRootPart.Position
-        table.sort(unclaimedBoothsList, function(a, b)
-            return (a.position - playerPos).Magnitude < (b.position - playerPos).Magnitude
+local function saveSettings()
+    if settingsLock then return end
+    if typeof(writefile) == "function" and HttpService then
+        local success, err = pcall(function()
+            writefile('plsdonatesettings_rayfield_booth.txt', HttpService:JSONEncode(getgenv().settings))
         end)
-    end
-
-    if #unclaimedBoothsList > 0 then
-        print("[Nhận Booth] Tìm thấy tổng cộng " .. #unclaimedBoothsList .. " booth trống phù hợp. Sẽ thử claim booth gần nhất.")
-    else
-        print("[Nhận Booth] Không tìm thấy booth nào trống trong phạm vi.")
-    end
-end
-
--- 3. HÀM THỰC HIỆN CLAIM BOOTH
-local function attemptToClaimBooth(boothIdToClaim)
-    if not boothIdToClaim then
-        warn("[Nhận Booth] LỖI: Không có booth ID để claim.")
-        return false
-    end
-
-    print("[Nhận Booth] Đang gửi yêu cầu nhận booth #" .. boothIdToClaim .. "...")
-    local successCall, result = pcall(function()
-        -- Tên RemoteEvent có thể là "ClaimBooth" hoặc tương tự
-        Remotes.Event("ClaimBooth"):InvokeServer(boothIdToClaim)
-    end)
-
-    if not successCall then
-        warn("[Nhận Booth] LỖI khi gọi RemoteEvent 'ClaimBooth':", tostring(result))
-        return false
-    end
-
-    task.wait(1.5) -- Chờ server xử lý và UI game cập nhật
-
-    -- Kiểm tra xem đã nhận thành công chưa
-    local claimedBoothUIFrame = boothUIDetailsContainer:FindFirstChild("BoothUI" .. boothIdToClaim)
-    if claimedBoothUIFrame and claimedBoothUIFrame:FindFirstChild("Details") and claimedBoothUIFrame.Details:FindFirstChild("Owner") then
-        local ownerText = claimedBoothUIFrame.Details.Owner.Text:lower()
-        local playerNameLower = localPlayer.Name:lower()
-        local playerDisplayNameLower = localPlayer.DisplayName:lower()
-
-        if ownerText:find(playerDisplayNameLower) or ownerText:find(playerNameLower) then
-            print("[Nhận Booth] THÀNH CÔNG! Đã nhận được booth #" .. boothIdToClaim .. "! 🎉")
-            getgenv().claimedBoothID_Basic = boothIdToClaim -- Lưu lại ID booth đã claim nếu cần dùng sau
-            return true
-        else
-            print("[Nhận Booth] Không thể xác minh việc nhận booth #" .. boothIdToClaim .. ". Owner hiện tại: " .. claimedBoothUIFrame.Details.Owner.Text)
-            return false
+        if not success then
+            Rayfield:Notify("Lỗi Lưu Setting", "Không thể lưu: " .. tostring(err), 5, Enum.RayfieldNotifyInfoType.Error)
         end
     else
-        warn("[Nhận Booth] Không tìm thấy UI của booth #" .. boothIdToClaim .. " sau khi thử nhận để xác minh.")
-        return false
+        -- Rayfield:Notify("Lưu ý", "Hàm 'writefile' không khả dụng. Cài đặt không được lưu vào file.", 3, Enum.RayfieldNotifyInfoType.Warning)
+        -- Vẫn print ra console để người dùng biết
+        print("RAYFIELD_BOOTH: writefile không khả dụng, cài đặt không được lưu vào file.")
     end
 end
 
--- 4. LOGIC CHÍNH ĐỂ CHẠY
-local function main()
-    if not localPlayer or not localPlayer.Character then
-        warn("[Nhận Booth] LỖI: Không tìm thấy người chơi hoặc nhân vật.")
+if typeof(isfile) == "function" and typeof(readfile) == "function" and HttpService then
+    if isfile('plsdonatesettings_rayfield_booth.txt') then
+        local sData = readfile('plsdonatesettings_rayfield_booth.txt')
+        local success, decoded = pcall(HttpService.JSONDecode, HttpService, sData)
+        if success and type(decoded) == "table" then
+            print("RAYFIELD_BOOTH: Đã tải cài đặt từ file.")
+            for i, key_name in ipairs(boothTabSettings_Names) do
+                getgenv().settings[key_name] = decoded[key_name] -- Load giá trị, sẽ được ghi đè bằng default nếu nil ở vòng lặp sau
+            end
+        else
+            Rayfield:Notify("Lỗi Load Setting", "Lỗi JSON. Dùng cài đặt mặc định.", 5, Enum.RayfieldNotifyInfoType.Error)
+        end
+    end
+end
+
+-- Đảm bảo tất cả settings cần thiết đều có giá trị, nếu không thì gán default
+local settingsChanged = false
+for i, key_name in ipairs(boothTabSettings_Names) do
+    if getgenv().settings[key_name] == nil then
+        getgenv().settings[key_name] = boothTabSettings_Defaults[i]
+        settingsChanged = true
+    end
+end
+if settingsChanged then
+    print("RAYFIELD_BOOTH: Một vài cài đặt được gán giá trị mặc định.")
+    saveSettings() -- Lưu lại để tạo file nếu chưa có hoặc cập nhật key mới
+end
+
+
+-- ===== CÁC HÀM HỖ TRỢ CHO TAB BOOTH =====
+local _boothlocation
+getgenv().claimedBoothID = getgenv().claimedBoothID or nil -- Giữ lại ID booth đã claim nếu script chạy lại
+
+local fonts = {"AmaticSC","Antique","Arcade","Arial","ArialBold","Bangers","Bodoni","Cartoon","Code","Creepster","DenkOne","Fantasy","Fondamento","FredokaOne","Garamond","Gotham","GothamBlack","GothamBold","GothamMedium","GrenzeGotisch","Highway","IndieFlower","JosefinSans","Jura","Kalam","Legacy","LuckiestGuy","Merriweather","Michroma","Nunito","Oswald","PatrickHand","PermanentMarker","Roboto","RobotoCondensed","RobotoMono","Sarpanch","SciFi","SourceSans","SourceSansBold","SourceSansItalic","SourceSansLight","SourceSansSemibold","SpecialElite","TitilliumWeb","Ubuntu"}
+
+local function formatNumber(n)
+    n = tonumber(n) or 0
+    if n == 420 or n == 425 then n = n + 10 end
+    if n >= 1000000000 then return string.format("%.2fb", n / 1000000000)
+    elseif n >= 1000000 then return string.format("%.2fm", n / 1000000)
+    elseif n >= 10000 then return string.format("%.1fk", n / 1000)
+    elseif n >= 1000 then return string.format("%.2fk", n / 1000)
+    else return tostring(math.floor(n)) end
+end
+
+local function rgbForPayload(hex)
+	hex = tostring(hex):gsub("#", "")
+    if #hex ~= 6 then return Color3.fromRGB(255,255,255) end
+    local r_val, g_val, b_val = tonumber("0x"..hex:sub(1,2)), tonumber("0x"..hex:sub(3,4)), tonumber("0x"..hex:sub(5,6))
+	return Color3.fromRGB(r_val or 255, g_val or 255, b_val or 255)
+end
+
+local function updateBoothText()
+    if not Remotes or not getgenv().settings.textUpdateToggle or not getgenv().settings.customBoothText then return end
+    if not getgenv().claimedBoothID then
+        -- Rayfield:Notify("Booth Text", "Chưa claim booth nào!", 2, Enum.RayfieldNotifyInfoType.Warning)
+        print("RAYFIELD_BOOTH: updateBoothText - Chưa claim booth.")
         return
     end
 
-    findNearbyUnclaimedBooths()
-
-    if #unclaimedBoothsList == 0 then
-        print("[Nhận Booth] Không có booth nào để thử nhận.")
+    if not _boothlocation then
+        local playerGui = localPlayer and localPlayer:WaitForChild("PlayerGui", 2)
+        _boothlocation = playerGui and playerGui:FindFirstChild("MapUIContainer",2) and playerGui.MapUIContainer:FindFirstChild("MapUI",2)
+        if not _boothlocation then _boothlocation = Workspace:FindFirstChild("MapUI",2) end
+    end
+    if not _boothlocation or not _boothlocation:FindFirstChild("BoothUI") then
+        Rayfield:Notify("Booth Text", "Không tìm thấy MapUI!", 3, Enum.RayfieldNotifyInfoType.Error)
         return
     end
 
-    local claimedSuccessfully = false
-    for _, boothInfo in ipairs(unclaimedBoothsList) do
-        if attemptToClaimBooth(boothInfo.id) then
-            claimedSuccessfully = true
-            -- (Tùy chọn) Di chuyển đến booth sau khi claim thành công
-            -- if localPlayer.Character and localPlayer.Character:FindFirstChild("HumanoidRootPart") and boothInfo.position then
-            --     print("[Nhận Booth] Đang di chuyển đến booth...")
-            --     local humanoid = localPlayer.Character:FindFirstChildOfClass("Humanoid")
-            --     if humanoid then
-            --         humanoid:MoveTo(boothInfo.position + Vector3.new(0,0,3)) -- Đứng trước booth
-            --     end
-            -- end
-            break -- Dừng lại sau khi claim thành công một booth
-        else
-            print("[Nhận Booth] Thất bại với booth #" .. boothInfo.id .. ". Thử booth tiếp theo nếu có...")
-            task.wait(0.5) -- Đợi một chút trước khi thử booth khác
-        end
-    end
+    local currentR = tonumber(newRaisedFormat.Value) or 0
+    local goalR = currentR + (tonumber(getgenv().settings.goalBox) or 0)
+    local currentS = formatNumber(currentR)
+    local goalS = formatNumber(goalR)
+    local jprS = tostring(getgenv().settings.jumpsPerRobux or 1)
 
-    if not claimedSuccessfully then
-        print("[Nhận Booth] Không thể nhận được booth nào trong danh sách đã tìm thấy.")
+    local textToSet = getgenv().settings.customBoothText
+        :gsub("%%$C", currentS) :gsub("%%$G", goalS) :gsub("%%$JPR", jprS)
+
+    local boothUIFrame = _boothlocation.BoothUI:FindFirstChild("BoothUI" .. getgenv().claimedBoothID)
+    if not boothUIFrame then
+        Rayfield:Notify("Booth Text", "Không tìm thấy UI booth #" .. getgenv().claimedBoothID, 3, Enum.RayfieldNotifyInfoType.Warning)
+        return
     end
-    print("--- Script Tự Động Nhận Booth Cơ Bản Đã Chạy Xong ---")
+    local signLbl = boothUIFrame:FindFirstChild("Sign", true) and boothUIFrame.Sign:FindFirstChild("TextLabel")
+    if not signLbl then print("RAYFIELD_BOOTH: Không tìm thấy Sign Label cho booth #"..getgenv().claimedBoothID); return end
+
+    if signLbl.Text == textToSet then return end
+
+    local payload = {
+        textFont = Enum.Font[getgenv().settings.fontFace] or Enum.Font.SourceSans, richText = true,
+        strokeColor = Color3.new(0,0,0), strokeOpacity = 0,
+        textColor = rgbForPayload(getgenv().settings.hexBox or "#FFFFFF"),
+        buttonStrokeColor = Color3.new(0,0,0), buttonTextColor = Color3.new(1,1,1),
+        buttonColor = Color3.fromRGB(98, 255, 0), buttonHoverColor = Color3.fromRGB(98, 255, 0),
+        buttonLayout = "", text = textToSet
+    }
+    local successPcall, errPcall = pcall(Remotes.Event("SetCustomization").FireServer, Remotes.Event("SetCustomization"), payload, "booth")
+    if not successPcall then
+        Rayfield:Notify("Lỗi Update Booth", "Không thể gửi yêu cầu: "..tostring(errPcall), 5, Enum.RayfieldNotifyInfoType.Error)
+    else
+        -- Rayfield:Notify("Booth Text", "Đã gửi yêu cầu cập nhật chữ.", 1.5, Enum.RayfieldNotifyInfoType.Success) -- Có thể hơi nhiều thông báo
+        print("RAYFIELD_BOOTH: Yêu cầu cập nhật chữ booth đã gửi.")
+    end
 end
 
--- Chạy hàm chính
-main()
+-- ===== TẠO CỬA SỔ RAYFIELD VÀ TAB "BOOTH" =====
+-- DÒNG NÀY ĐÃ ĐƯỢC SỬA:
+local Window = Rayfield:CreateWindow({
+    Name = "Autofarm PLS DONATE (Rayfield) - Tab Booth",
+    LoadingTitle = "Đang tải...",
+    LoadingSubtitle = "Bắt đầu với Tab Booth",
+    ConfigurationSaving = { Enabled = false },
+    KeySystem = false
+})
+
+local BoothTab = Window:CreateTab("Booth", "rbxassetid://10749538839") -- ID Icon ví dụ
+
+-------------------- UI CHO TAB: BOOTH --------------------
+BoothTab:CreateSection("Cài Đặt Hiển Thị Chữ Trên Booth")
+
+BoothTab:CreateToggle({
+    Name = "Tự Cập Nhật Chữ Booth",
+    CurrentValue = getgenv().settings.textUpdateToggle, -- Lấy giá trị từ settings
+    Callback = function(Value)
+        if settingsLock then return end
+        getgenv().settings.textUpdateToggle = Value
+        saveSettings()
+        if Value then updateBoothText() end
+    end,
+})
+
+BoothTab:CreateInput({
+    Name = "Delay Cập Nhật Chữ (giây)",
+    DefaultText = tostring(getgenv().settings.textUpdateDelay), -- Giá trị ban đầu
+    Numeric = true, Float = 0, Min = 0,
+    Callback = function(Text)
+        if settingsLock then return end
+        local num = tonumber(Text)
+        if num then
+            getgenv().settings.textUpdateDelay = num
+            saveSettings()
+        end
+    end,
+})
+
+BoothTab:CreateInput({
+    Name = "Màu Chữ Booth (Mã Hex: #RRGGBB)",
+    DefaultText = getgenv().settings.hexBox,
+    PlaceholderText = "#FFFFFF",
+    Callback = function(Text)
+        if settingsLock then return end
+        local successColor, _ = pcall(Color3.fromHex, Text)
+        if successColor and string.sub(Text,1,1) == "#" and #Text == 7 then
+            getgenv().settings.hexBox = Text
+            saveSettings()
+            updateBoothText()
+        else
+            Rayfield:Notify("Lỗi Mã Hex", "Mã màu Hex không hợp lệ. Ví dụ: #FF0000", 4, Enum.RayfieldNotifyInfoType.Error)
+        end
+    end,
+})
+
+BoothTab:CreateInput({
+    Name = "Mục Tiêu Robux (Goal)",
+    DefaultText = tostring(getgenv().settings.goalBox),
+    Numeric = true, Float = 0, Min = 0,
+    Callback = function(Text)
+        if settingsLock then return end
+        local num = tonumber(Text)
+        if num then
+            getgenv().settings.goalBox = num
+            saveSettings()
+            updateBoothText()
+        end
+    end,
+})
+
+BoothTab:CreateLabel("Biến cho nội dung booth: $C (Raised hiện tại), $G (Mục tiêu), $JPR (Jumps/Robux)")
+local customBoothTextbox_Rayfield
+customBoothTextbox_Rayfield = BoothTab:CreateTextbox({
+    Name = "Nội Dung Booth Tùy Chỉnh",
+    Text = getgenv().settings.customBoothText,
+    PlaceholderText = "Nhập nội dung booth của bạn ở đây...",
+    Callback = function(CurrentText)
+        if settingsLock then return end
+        if #CurrentText > 221 then
+            Rayfield:Notify("Lỗi Văn Bản", "Nội dung booth không được quá 221 ký tự!", 5, Enum.RayfieldNotifyInfoType.Error)
+            if customBoothTextbox_Rayfield and customBoothTextbox_Rayfield.SetText then
+                 local trimmedText = string.sub(CurrentText, 1, 221)
+                 customBoothTextbox_Rayfield:SetText(trimmedText)
+                 getgenv().settings.customBoothText = trimmedText
+            else
+                 return
+            end
+        else
+            getgenv().settings.customBoothText = CurrentText
+        end
+        saveSettings()
+        updateBoothText()
+    end,
+})
+BoothTab:CreateButton({
+    Name = "Cập Nhật Nội Dung Booth Ngay",
+    Callback = function()
+        if settingsLock then return end
+        if #getgenv().settings.customBoothText > 221 then
+            Rayfield:Notify("Lỗi Văn Bản", "Nội dung booth quá 221 ký tự!", 5)
+            return
+        end
+        updateBoothText()
+        Rayfield:Notify("Booth Text", "Đã yêu cầu cập nhật nội dung.", 2)
+    end,
+})
+
+local fontOptionsForDropdown = {}
+for _, fontNameStr in ipairs(fonts) do table.insert(fontOptionsForDropdown, fontNameStr) end
+BoothTab:CreateDropdown({
+    Name = "Font Chữ Trên Booth",
+    Options = fontOptionsForDropdown,
+    CurrentOption = getgenv().settings.fontFace,
+    Callback = function(SelectedOption)
+        if settingsLock then return end
+        getgenv().settings.fontFace = SelectedOption
+        saveSettings()
+        updateBoothText()
+    end,
+})
+
+BoothTab:CreateDropdown({
+    Name = "Vị Trí Đứng Tại Booth",
+    Options = {"Front", "Left", "Right", "Behind"},
+    CurrentOption = getgenv().settings.standingPosition,
+    Callback = function(SelectedOption)
+        if settingsLock then return end
+        getgenv().settings.standingPosition = SelectedOption
+        if SelectedOption == "Front" then getgenv().settings.boothPosition = 3
+        elseif SelectedOption == "Left" then getgenv().settings.boothPosition = -6
+        elseif SelectedOption == "Right" then getgenv().settings.boothPosition = 6
+        else getgenv().settings.boothPosition = -5.5 end
+        saveSettings()
+    end,
+})
+
+-------------------- KẾT THÚC KHAI BÁO UI CHO TAB BOOTH --------------------
+settingsLock = false -- Cho phép các callback hoạt động
+Rayfield:Notify("Khởi Tạo Hoàn Tất", "Tab Booth đã sẵn sàng!", 5, Enum.RayfieldNotifyInfoType.Success)
+print("RAYFIELD_BOOTH: Script Tab Booth đã được tải và UI đã tạo.")
+
+--[[
+    PHẦN TIẾP THEO SẼ LÀ:
+    - Thêm logic tìm và claim booth (findUnclaimed, boothclaim, vòng lặp claim).
+      Sau khi claim thành công, gán getgenv().claimedBoothID = id_booth_da_claim.
+    - Gọi updateBoothText() và walkToBooth() sau khi claim.
+    - Thêm các tab khác (Main, Chat, Webhook, v.v.) và các chức năng tương ứng của chúng.
+]]
+
+-- Tạm thời, để bạn test UI của Tab Booth, tôi sẽ không tự động claim booth.
+-- Bạn có thể kích hoạt chức năng updateBoothText() thủ công bằng cách thay đổi cài đặt trong UI.
+-- Để nó thực sự cập nhật chữ trên booth, bạn cần claim một booth trước (bằng tay hoặc bằng script khác)
+-- và đặt getgenv().claimedBoothID = [số ID booth của bạn] trong console executor.
+-- Ví dụ: getgenv().claimedBoothID = 15 (nếu booth của bạn là số 15)
