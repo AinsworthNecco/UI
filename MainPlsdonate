@@ -1,193 +1,329 @@
 --[[
-    SCRIPT CƠ BẢN TỰ ĐỘNG NHẬN BOOTH TRONG ROBLOX
-    Mục đích: Tìm và tự động claim một booth trống.
-    Sử dụng với Executor.
+    Script tự động tìm, chiếm gian hàng và di chuyển đến đó.
+    LƯU Ý: Đây là sự kết hợp của các đoạn code được cung cấp,
+    với các placeholder cho các phần còn thiếu.
 ]]
 
+-- Khai báo biến và thiết lập ban đầu (từ đoạn code thứ hai)
+local _CFRAMETABLE = {
+    {166.584, 3.47699, 371.398}, {228.765, 3.57067, 332.55},
+    {225.878, 3.57066, 274.96}, {169.654, 4.11481, 232.826},
+    {102.625, 3.57066, 274.941}, {109.353, 3.57066, 351.28},
+    {166.584, 3.47699, 371.399}
+}
+local unclaimed = {}
+local mainCheckPosition = Vector3.new(165.161, 0, 311.636)
+local donation, boothText, spamming, hopTimer, vcEnabled
+local errCount = 0
+local bclaimed = false -- Biến này được set trong walkToBooth
+
+-- Các dịch vụ và đối tượng Roblox chuẩn
 local Players = game:GetService("Players")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local Workspace = game:GetService("Workspace")
+local HttpService = game:GetService("HttpService")
+local Workspace = game:GetService("Workspace") -- Giả sử workspace là Workspace
 
-local localPlayer = Players.LocalPlayer
+-- Giả định về getgenv() và settings của nó
+local _settings = {
+    boothPosition = "6", -- Giá trị ví dụ, có thể là một số hoặc chuỗi
+    danceChoice = "1",   -- Giá trị ví dụ
+    autoBeg = true       -- Giá trị ví dụ
+}
+if typeof(getgenv) ~= "function" then
+    function getgenv() -- Placeholder nếu getgenv không tồn tại
+        local env = {
+            settings = _settings
+        }
+        return env
+    end
+end
 
-print("--- Script Tự Động Nhận Booth Cơ Bản Đang Chạy ---")
 
--- 1. TÌM MODULE REMOTES
-local Remotes
-print("[Nhận Booth] Đang tìm module Remotes...")
-for _, moduleInstance in ipairs(ReplicatedStorage:GetChildren()) do
-    if moduleInstance.Name:find('Remote', 1, true) and moduleInstance:IsA('ModuleScript') then
-        local success, remoteMod = pcall(require, moduleInstance)
-        if success and remoteMod and typeof(remoteMod.Event) == "function" then
-            -- Kiểm tra sơ bộ xem có phải module Remotes không bằng cách thử truy cập một event thường có
-            -- (Không thực sự Fire event ở đây để tránh tác dụng phụ không mong muốn khi chỉ tìm module)
-            local couldBeRemotes = pcall(function() return remoteMod.Event(remoteMod, "ClaimBooth") end)
-            if couldBeRemotes then
-                 Remotes = remoteMod
-                 print("[Nhận Booth] Đã tìm thấy module Remotes:", moduleInstance.Name)
-                 break
+-- Placeholder cho các đối tượng game và Remotes
+-- Trong thực tế, _boothlocation sẽ trỏ đến một đối tượng cụ thể trong game
+local _boothlocation = Workspace:FindFirstChild("BoothContainer") or Workspace -- Cần điều chỉnh cho đúng game
+if not _boothlocation:FindFirstChild("BoothUI") then
+    -- Tạo BoothUI giả để script không lỗi ngay lập tức nếu không tìm thấy
+    local fakeBoothUI = Instance.new("Folder")
+    fakeBoothUI.Name = "BoothUI"
+    fakeBoothUI.Parent = _boothlocation
+    warn("Sử dụng BoothUI giả lập vì không tìm thấy trong _boothlocation")
+end
+if not Workspace:FindFirstChild("BoothInteractions") then
+    local fakeInteractions = Instance.new("Folder")
+    fakeInteractions.Name = "BoothInteractions"
+    fakeInteractions.Parent = Workspace
+    warn("Sử dụng BoothInteractions giả lập vì không tìm thấy trong Workspace")
+end
+
+
+-- Placeholder cho RemoteEvents/Functions
+local Remotes = {
+    Event = function(eventName)
+        return {
+            InvokeServer = function(boothNum)
+                print("Placeholder: Đang cố gắng chiếm gian hàng số " .. tostring(boothNum))
+                -- Logic giả: Giả sử chiếm thành công sau một chút và cập nhật UI (nếu có)
+                -- Trong thực tế, điều này sẽ giao tiếp với server
+                local boothUIFrame = _boothlocation.BoothUI:FindFirstChild("BoothUI" .. tostring(boothNum))
+                if boothUIFrame and boothUIFrame:FindFirstChild("Details") and boothUIFrame.Details:FindFirstChild("Owner") then
+                    task.wait(0.5) -- Giả lập độ trễ mạng
+                    boothUIFrame.Details.Owner.Text = Players.LocalPlayer.DisplayName
+                    print("Placeholder: Gian hàng " .. boothNum .. " được giả lập là đã chiếm bởi " .. Players.LocalPlayer.DisplayName)
+                    return true -- Giả sử thành công
+                else
+                    warn("Placeholder: Không tìm thấy UI cho gian hàng " .. boothNum .. " để giả lập việc chiếm")
+                    return false -- Giả sử thất bại
+                end
             end
+        }
+    end
+}
+
+-- Lấy UserId và newRaisedFormat
+local uid = Players.LocalPlayer.UserId
+local leaderstats = Players.LocalPlayer:WaitForChild('leaderstats')
+local newRaisedFormat = leaderstats:WaitForChild('Raised') -- Sẽ lỗi nếu leaderstats hoặc Raised không tồn tại
+
+-- Thiết lập cho queueonteleport và httprequest (thường dùng trong exploit)
+local queueonteleport = (syn and syn.queue_on_teleport) or queue_on_teleport or (fluxus and fluxus.queue_on_teleport) or nil
+local httprequest = (syn and syn.request) or http and http.request or http_request or (fluxus and fluxus.request) or request
+
+-- Placeholder Functions
+local function serverHop()
+    print("Placeholder: Đang thực hiện serverHop()...")
+    -- Logic chuyển server sẽ ở đây
+end
+
+local function hopSet()
+    print("Placeholder: Đang thực hiện hopSet()...")
+    -- Logic cài đặt sau khi hop hoặc chiếm booth thành công
+end
+
+local function begging()
+    print("Placeholder: Bắt đầu begging...")
+    while getgenv().settings.autoBeg and bclaimed do -- Chỉ beg khi đã claim và autoBeg bật
+        print("Placeholder: Spam tin nhắn begging...")
+        -- Players:Chat("Tin nhắn begging ở đây") -- Cẩn thận khi sử dụng chat tự động
+        task.wait(5) -- Chờ giữa các tin nhắn
+        if not bclaimed then break end -- Dừng nếu không còn ở booth
+    end
+    print("Placeholder: Dừng begging.")
+end
+
+-- Hàm tìm gian hàng chưa có người (từ đoạn code đầu tiên)
+local function findUnclaimed()
+    unclaimed = {} -- Reset lại bảng unclaimed
+    local boothUI = _boothlocation:WaitForChild("BoothUI")
+    local interactions = Workspace:WaitForChild("BoothInteractions")
+    local mainPos2D = Vector3.new(mainCheckPosition.X, 0, mainCheckPosition.Z)
+
+    -- Tạo một số booth UI và interaction giả để thử nghiệm nếu cần
+    --[[
+    if #boothUI:GetChildren() == 0 then
+        warn("Không có BoothUI nào, tạo dữ liệu giả để test findUnclaimed")
+        for i = 1, 5 do
+            local fakeFrame = Instance.new("Frame")
+            fakeFrame.Name = "BoothUI" .. i
+            local details = Instance.new("Folder")
+            details.Name = "Details"
+            details.Parent = fakeFrame
+            local owner = Instance.new("TextLabel")
+            owner.Name = "Owner"
+            owner.Text = (i % 2 == 0) and "unclaimed" or "some_player"
+            owner.Parent = details
+            fakeFrame.Parent = boothUI
+
+            local fakeInteract = Instance.new("Part")
+            fakeInteract.Name = "BoothInteract" .. i
+            fakeInteract.Position = mainCheckPosition + Vector3.new(i * 10, 0, i * 5) -- Vị trí giả
+            fakeInteract:SetAttribute("BoothSlot", i)
+            fakeInteract.Parent = interactions
         end
     end
-    task.wait(0.05)
-end
+    --]]
 
-if not Remotes then
-    warn("[Nhận Booth] LỖI: Không tìm thấy module Remotes! Script không thể tiếp tục.")
-    return
-end
-
--- 2. CÁC BIẾN VÀ HÀM HỖ TRỢ
-local unclaimedBoothsList = {}
-local mainCheckPosition = Vector3.new(165.161, 0, 311.636) -- Vị trí trung tâm để tìm booth (giống script gốc)
-local boothSearchRadius = 100 -- Bán kính tìm kiếm booth quanh vị trí trung tâm
-
-local boothLocationUI = Workspace:WaitForChild("MapUI", 10) -- Nơi chứa UI các booth trong Workspace
-if not boothLocationUI then
-    -- Thử tìm trong PlayerGui nếu không thấy trong Workspace
-    local playerGui = localPlayer and localPlayer:WaitForChild("PlayerGui", 5)
-    boothLocationUI = playerGui and playerGui:WaitForChild("MapUIContainer", 5) and playerGui.MapUIContainer:FindFirstChild("MapUI")
-end
-
-if not boothLocationUI then
-    warn("[Nhận Booth] LỖI: Không tìm thấy 'MapUI' (nơi chứa UI các booth).")
-    return
-end
-
-local boothUIDetailsContainer = boothLocationUI:FindFirstChild("BoothUI")
-local boothInteractionsContainer = Workspace:FindFirstChild("BoothInteractions")
-
-if not boothUIDetailsContainer then
-    warn("[Nhận Booth] LỖI: Không tìm thấy 'BoothUI' bên trong 'MapUI'.")
-    return
-end
-if not boothInteractionsContainer then
-    warn("[Nhận Booth] LỖI: Không tìm thấy 'BoothInteractions' trong Workspace.")
-    return
-end
-
--- Hàm tìm booth trống
-local function findNearbyUnclaimedBooths()
-    unclaimedBoothsList = {} -- Reset danh sách
-    print("[Nhận Booth] Đang quét tìm booth trống gần vị trí trung tâm...")
-
-    local mainPos2D = Vector2.new(mainCheckPosition.X, mainCheckPosition.Z)
-
-    for _, uiFrame in ipairs(boothUIDetailsContainer:GetChildren()) do
-        if uiFrame:IsA("Frame") and uiFrame:FindFirstChild("Details") and uiFrame.Details:FindFirstChild("Owner") then
-            if uiFrame.Details.Owner.Text:lower() == "unclaimed" then
-                local boothNumStr = uiFrame.Name:match("%d+")
-                if boothNumStr then
-                    local boothNum = tonumber(boothNumStr)
-                    for _, interactPoint in ipairs(boothInteractionsContainer:GetChildren()) do
-                        if interactPoint:GetAttribute("BoothSlot") == boothNum then
-                            local boothPos2D = Vector2.new(interactPoint.Position.X, interactPoint.Position.Z)
-                            if (boothPos2D - mainPos2D).Magnitude < boothSearchRadius then
-                                table.insert(unclaimedBoothsList, {id = boothNum, position = interactPoint.Position})
-                                print("[Nhận Booth] Tìm thấy booth trống tiềm năng #" .. boothNum)
+    for _, uiFrame in ipairs(boothUI:GetChildren()) do
+        if uiFrame:IsA("GuiObject") and uiFrame:FindFirstChild("Details") and uiFrame.Details:FindFirstChild("Owner") then -- Kiểm tra kỹ hơn
+            if uiFrame.Details.Owner.Text == "unclaimed" then
+                local boothNumMatch = uiFrame.Name:match("%d+")
+                if boothNumMatch then
+                    local boothNum = tonumber(boothNumMatch)
+                    if boothNum then
+                        for _, interact in ipairs(interactions:GetChildren()) do
+                            if interact:GetAttribute("BoothSlot") == boothNum then
+                                local pos2D = Vector3.new(interact.Position.X, 0, interact.Position.Z)
+                                if (pos2D - mainPos2D).Magnitude < 92 then
+                                    table.insert(unclaimed, boothNum)
+                                    break -- Dừng quét interactions khi đã tìm thấy
+                                end
                             end
-                            break
                         end
                     end
                 end
             end
+        else
+            -- warn("uiFrame không hợp lệ hoặc thiếu cấu trúc Details.Owner: " .. uiFrame.Name)
         end
     end
+    print("Các gian hàng chưa có người được tìm thấy trong phạm vi:", unclaimed)
+end
 
-    -- Sắp xếp các booth tìm được theo khoảng cách đến người chơi (gần nhất trước)
-    if localPlayer.Character and localPlayer.Character:FindFirstChild("HumanoidRootPart") then
-        local playerPos = localPlayer.Character.HumanoidRootPart.Position
-        table.sort(unclaimedBoothsList, function(a, b)
-            return (a.position - playerPos).Magnitude < (b.position - playerPos).Magnitude
-        end)
-    end
-
-    if #unclaimedBoothsList > 0 then
-        print("[Nhận Booth] Tìm thấy tổng cộng " .. #unclaimedBoothsList .. " booth trống phù hợp. Sẽ thử claim booth gần nhất.")
+-- Hàm chiếm gian hàng (từ đoạn code đầu tiên)
+local function boothclaim()
+    print("Đang cố gắng chiếm gian hàng số: " .. tostring(unclaimed[2]))
+    Remotes.Event("ClaimBooth"):InvokeServer(unclaimed[2])
+    task.wait(0.1) -- Chờ một chút để server có thể cập nhật UI
+    
+    local ownerTextUI = _boothlocation.BoothUI:FindFirstChild("BoothUI" .. unclaimed[2])
+    if ownerTextUI and ownerTextUI:FindFirstChild("Details") and ownerTextUI.Details:FindFirstChild("Owner") then
+        if not string.find(ownerTextUI.Details.Owner.Text, Players.LocalPlayer.DisplayName) then
+            task.wait(1)
+            if not string.find(ownerTextUI.Details.Owner.Text, Players.LocalPlayer.DisplayName) then
+                print("Thất bại trong việc xác nhận chiếm gian hàng " .. unclaimed[2] .. ". Chủ sở hữu hiện tại: " .. ownerTextUI.Details.Owner.Text)
+                error("Không thể xác nhận quyền sở hữu gian hàng.") -- Gây lỗi để pcall bắt
+            end
+        end
+        print("Đã xác nhận chiếm thành công gian hàng " .. unclaimed[2])
     else
-        print("[Nhận Booth] Không tìm thấy booth nào trống trong phạm vi.")
+        warn("Không tìm thấy UI để xác nhận quyền sở hữu cho gian hàng " .. unclaimed[2])
+        error("Lỗi UI khi xác nhận quyền sở hữu.") -- Gây lỗi
     end
 end
 
--- 3. HÀM THỰC HIỆN CLAIM BOOTH
-local function attemptToClaimBooth(boothIdToClaim)
-    if not boothIdToClaim then
-        warn("[Nhận Booth] LỖI: Không có booth ID để claim.")
-        return false
+-- Hàm di chuyển đến gian hàng (từ đoạn code đầu tiên)
+getgenv().walkToBooth = function()
+    local character = Players.LocalPlayer.Character or Players.LocalPlayer.CharacterAdded:Wait()
+    local humanoid = character:WaitForChild("Humanoid")
+    local rootPart = character:WaitForChild("HumanoidRootPart")
+
+    local theCframe
+    if string.find(tostring(getgenv().settings.boothPosition), "6") then -- Logic này hơi lạ, cần xem xét kỹ settings
+        theCframe = CFrame.new(tonumber(getgenv().settings.boothPosition) or 6, 0, 0)
+    else
+        theCframe = CFrame.new(0, 0, tonumber(getgenv().settings.boothPosition) or 6)
     end
 
-    print("[Nhận Booth] Đang gửi yêu cầu nhận booth #" .. boothIdToClaim .. "...")
-    local successCall, result = pcall(function()
-        -- Tên RemoteEvent có thể là "ClaimBooth" hoặc tương tự
-        Remotes.Event("ClaimBooth"):InvokeServer(boothIdToClaim)
+    local boothPosCFrame, mainBoothCFrame
+    local interactions = Workspace:WaitForChild("BoothInteractions")
+
+    for i, v in ipairs(interactions:GetChildren()) do
+        if v:GetAttribute("BoothSlot") == unclaimed[2] then -- Luôn là unclaimed[2] theo logic gốc
+            print("Khoảng cách đến gian hàng " .. unclaimed[2] .. ": " .. (v.Position - mainCheckPosition).Magnitude)
+            mainBoothCFrame = v.CFrame
+            boothPosCFrame = v.CFrame * theCframe
+            rootPart.CFrame = mainBoothCFrame -- Dịch chuyển tức thời đến điểm tương tác
+            break
+        end
+    end
+
+    if not boothPosCFrame then
+        warn("Không tìm thấy CFrame cho gian hàng đã chiếm: " .. unclaimed[2])
+        serverHop() -- Nếu không tìm thấy, có thể server hop
+        return
+    end
+
+    humanoid.WalkSpeed = 32
+    local atBooth = false
+
+    -- Dọn dẹp vật cản (ví dụ)
+    local benches = Workspace.Map and Workspace.Map.Decoration and Workspace.Map.Decoration:FindFirstChild('Benches')
+    if benches then
+        benches:Destroy()
+    end
+
+    print("Đang di chuyển đến vị trí gian hàng...")
+    humanoid:MoveTo(boothPosCFrame.Position)
+    
+    local moveToConnection
+    moveToConnection = humanoid.MoveToFinished:Connect(function(reached)
+        atBooth = true
+        if moveToConnection then moveToConnection:Disconnect() end -- Ngắt kết nối sau khi hoàn thành
     end)
 
-    if not successCall then
-        warn("[Nhận Booth] LỖI khi gọi RemoteEvent 'ClaimBooth':", tostring(result))
-        return false
-    end
-
-    task.wait(1.5) -- Chờ server xử lý và UI game cập nhật
-
-    -- Kiểm tra xem đã nhận thành công chưa
-    local claimedBoothUIFrame = boothUIDetailsContainer:FindFirstChild("BoothUI" .. boothIdToClaim)
-    if claimedBoothUIFrame and claimedBoothUIFrame:FindFirstChild("Details") and claimedBoothUIFrame.Details:FindFirstChild("Owner") then
-        local ownerText = claimedBoothUIFrame.Details.Owner.Text:lower()
-        local playerNameLower = localPlayer.Name:lower()
-        local playerDisplayNameLower = localPlayer.DisplayName:lower()
-
-        if ownerText:find(playerDisplayNameLower) or ownerText:find(playerNameLower) then
-            print("[Nhận Booth] THÀNH CÔNG! Đã nhận được booth #" .. boothIdToClaim .. "! 🎉")
-            getgenv().claimedBoothID_Basic = boothIdToClaim -- Lưu lại ID booth đã claim nếu cần dùng sau
-            return true
-        else
-            print("[Nhận Booth] Không thể xác minh việc nhận booth #" .. boothIdToClaim .. ". Owner hiện tại: " .. claimedBoothUIFrame.Details.Owner.Text)
-            return false
+    local atBoothtick = 0
+    repeat
+        task.wait()
+        atBoothtick += 1
+        if atBoothtick > 300 then -- Timeout khoảng 10 giây (300 * 0.033s)
+            warn("MoveTo timed out.")
+            if moveToConnection then moveToConnection:Disconnect() end
+            break
         end
-    else
-        warn("[Nhận Booth] Không tìm thấy UI của booth #" .. boothIdToClaim .. " sau khi thử nhận để xác minh.")
-        return false
-    end
+    until atBooth
+
+    rootPart.CFrame = CFrame.new(boothPosCFrame.Position) -- Đảm bảo vị trí chính xác
+    -- Xoay nhân vật nhìn về một hướng cố định (ví dụ)
+    character:SetPrimaryPartCFrame(CFrame.new(rootPart.Position, rootPart.Position + Vector3.new(0,0,-1))) -- Nhìn về phía trước tương đối
+
+    task.wait(0.6)
+    humanoid.WalkSpeed = 16
+    Players:Chat('/e dance' .. (getgenv().settings.danceChoice or "1"))
+    bclaimed = true
+    print("Đã đến gian hàng và thực hiện hành động.")
 end
 
--- 4. LOGIC CHÍNH ĐỂ CHẠY
-local function main()
-    if not localPlayer or not localPlayer.Character then
-        warn("[Nhận Booth] LỖI: Không tìm thấy người chơi hoặc nhân vật.")
-        return
-    end
 
-    findNearbyUnclaimedBooths()
-
-    if #unclaimedBoothsList == 0 then
-        print("[Nhận Booth] Không có booth nào để thử nhận.")
-        return
-    end
-
-    local claimedSuccessfully = false
-    for _, boothInfo in ipairs(unclaimedBoothsList) do
-        if attemptToClaimBooth(boothInfo.id) then
-            claimedSuccessfully = true
-            -- (Tùy chọn) Di chuyển đến booth sau khi claim thành công
-            -- if localPlayer.Character and localPlayer.Character:FindFirstChild("HumanoidRootPart") and boothInfo.position then
-            --     print("[Nhận Booth] Đang di chuyển đến booth...")
-            --     local humanoid = localPlayer.Character:FindFirstChildOfClass("Humanoid")
-            --     if humanoid then
-            --         humanoid:MoveTo(boothInfo.position + Vector3.new(0,0,3)) -- Đứng trước booth
-            --     end
-            -- end
-            break -- Dừng lại sau khi claim thành công một booth
-        else
-            print("[Nhận Booth] Thất bại với booth #" .. boothInfo.id .. ". Thử booth tiếp theo nếu có...")
-            task.wait(0.5) -- Đợi một chút trước khi thử booth khác
-        end
-    end
-
-    if not claimedSuccessfully then
-        print("[Nhận Booth] Không thể nhận được booth nào trong danh sách đã tìm thấy.")
-    end
-    print("--- Script Tự Động Nhận Booth Cơ Bản Đã Chạy Xong ---")
+-- Luồng thực thi chính
+if not pcall(findUnclaimed) then
+    warn("Lỗi khi thực thi findUnclaimed.")
+    serverHop()
+    return -- Dừng script nếu findUnclaimed lỗi nghiêm trọng
 end
 
--- Chạy hàm chính
-main()
+if not unclaimed[2] then -- Cần ít nhất 2 gian hàng để thử chiếm cái thứ 2
+    print("Không tìm thấy đủ gian hàng (cần ít nhất 2, tìm thấy " .. #unclaimed .. "). Đang server hop...")
+    serverHop()
+    return
+end
+
+local claimCount = #unclaimed -- Số lượng gian hàng ban đầu tìm được
+errCount = 0 -- Reset errCount trước vòng lặp
+
+print("Bắt đầu quá trình chiếm gian hàng...")
+while not pcall(boothclaim) do
+    errCount = errCount + 1
+    print("Thất bại trong việc chiếm gian hàng lần thứ " .. errCount)
+    if errCount >= claimCount then -- Nếu đã thử hết các gian hàng tiềm năng
+        print("Đã thử chiếm tất cả các gian hàng tiềm năng không thành công. Đang server hop...")
+        serverHop()
+        return -- Dừng script
+    end
+    if #unclaimed < 2 then -- Không còn đủ gian hàng để thử logic unclaimed[2]
+        print("Không còn đủ gian hàng để tiếp tục. Đang server hop...")
+        serverHop()
+        return
+    end
+    -- Loại bỏ gian hàng đầu tiên để thử gian hàng khác trong lần lặp tiếp theo với logic unclaimed[2]
+    print("Loại bỏ gian hàng ".. table.remove(unclaimed, 1) .. " khỏi danh sách.") 
+    if not unclaimed[2] then -- Kiểm tra lại sau khi xóa
+        print("Không còn gian hàng thứ 2 sau khi xóa. Đang server hop...")
+        serverHop()
+        return
+    end
+    task.wait(1) -- Chờ một chút trước khi thử lại
+end
+
+-- Nếu pcall(boothclaim) thành công, nghĩa là đã chiếm được gian hàng
+print("Chiếm gian hàng thành công!")
+hopSet() -- Thực hiện các cài đặt sau khi chiếm
+
+getgenv().walkToBooth() -- Di chuyển đến gian hàng
+
+if getgenv().settings.autoBeg then
+    if spamming and typeof(spamming.getStatus) == "function" and spamming:getStatus() ~= "dead" then
+        spamming:cancel() -- Hủy task cũ nếu có
+    end
+    spamming = task.spawn(begging) -- Bắt đầu luồng mới
+end
+
+print("Script hoàn tất quá trình thiết lập ban đầu.")
+
+-- Nếu có queue_on_teleport, đăng ký để script chạy lại khi teleport
+if queueonteleport then
+    queueonteleport([[
+        -- Code để chạy lại sau khi teleport, có thể là load lại script này
+        print("Đã teleport, đang cố gắng chạy lại script (nếu được cấu hình)...")
+        -- loadstring(game:HttpGet("URL_TO_YOUR_SCRIPT_IF_NEEDED"))()
+    ]])
+    print("Đã đăng ký queue_on_teleport.")
+end
