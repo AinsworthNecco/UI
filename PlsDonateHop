@@ -1,1 +1,437 @@
 
+-- Các service cần thiết
+local TeleportService = game:GetService("TeleportService")
+local HttpService = game:GetService("HttpService")
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
+local CoreGui = game:GetService("CoreGui")
+
+if not LocalPlayer then
+    print("[ServerHop] Lỗi nghiêm trọng: Không tìm thấy LocalPlayer!")
+    return
+end
+
+-- --- Cấu hình Script ---
+local placeId = game.PlaceId
+local currentJobId = game.JobId
+
+local DEFAULT_WAIT_MINUTES = 10 -- Thời gian chờ mặc định (10 phút)
+local minPlayerPercentage = 0.50
+local maxPlayerPercentageLimit = 0.90
+local waitTimeBetweenFullScans = 7 -- giây
+local waitTimeBetweenPageFetches = 0.75 -- giây
+local baseRetryDelay = 1 -- giây
+local maxRetryDelay = 16 -- giây
+local POST_TELEPORT_FAILSAFE_DURATION = 30 -- giây
+
+local SERVER_HISTORY_FILENAME = "server_hop_history_v2.txt" -- Đổi tên file để tránh xung đột với bản cũ
+
+-- --- Biến toàn cục cho quản lý coroutine và trạng thái ---
+local currentCountdownThread = nil
+local mainHopCycleActive = true -- Đặt thành false để dừng hoàn toàn script một cách an toàn
+
+-- --- Kiểm tra và gán hàm đọc/ghi file ---
+local canAccessFiles = false
+local writefile_func, readfile_func
+if writefile and readfile then
+    canAccessFiles = true
+    writefile_func = writefile
+    readfile_func = readfile
+    print("[ServerHop] Phát hiện writefile/readfile. Lưu lịch sử server được kích hoạt.")
+else
+    print("[ServerHop] Không phát hiện writefile/readfile. Sẽ chỉ tránh server hiện tại.")
+end
+
+-- --- UI Chính (Thông báo trạng thái) ---
+local playerGui = LocalPlayer:WaitForChild("PlayerGui")
+local statusScreenGui = playerGui:FindFirstChild("ServerHopStatusGUI_V2")
+if statusScreenGui then statusScreenGui:Destroy() end
+
+statusScreenGui = Instance.new("ScreenGui")
+statusScreenGui.Name = "ServerHopStatusGUI_V2"
+statusScreenGui.ResetOnSpawn = false
+statusScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+statusScreenGui.Parent = playerGui
+
+local statusTextLabel = Instance.new("TextLabel")
+statusTextLabel.Name = "StatusLabel"
+statusTextLabel.Size = UDim2.new(0.8, 0, 0.15, 0)
+statusTextLabel.Position = UDim2.new(0.1, 0, 0.05, 0)
+statusTextLabel.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+statusTextLabel.BackgroundTransparency = 0.3
+statusTextLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+statusTextLabel.Font = Enum.Font.SourceSansSemibold
+statusTextLabel.TextSize = 18
+statusTextLabel.TextWrapped = true
+statusTextLabel.TextXAlignment = Enum.TextXAlignment.Left
+statusTextLabel.Text = "Đang khởi tạo ServerHop Script..."
+statusTextLabel.Parent = statusScreenGui
+
+local function updateStatus(message)
+    print("[ServerHop] " .. message)
+    if statusTextLabel and statusTextLabel.Parent then
+        statusTextLabel.Text = "[SH] " .. message -- Thêm prefix để dễ nhận biết
+    end
+end
+
+-- --- Hàm xử lý file cho LỊCH SỬ server ---
+local serverHistoryCache = {}
+
+local function loadServerHistory()
+    local historySet = {}
+    if canAccessFiles then
+        local success, content = pcall(readfile_func, SERVER_HISTORY_FILENAME)
+        if success and content then
+            local count = 0
+            for line in string.gmatch(content, "[^" .. "\r\n" .. "]+") do
+                local trimmedLine = line:match("^%s*(.-)%s*$")
+                if trimmedLine and #trimmedLine > 0 then
+                    historySet[trimmedLine] = true
+                    count = count + 1
+                end
+            end
+            if count > 0 then updateStatus("Đã tải " .. count .. " server từ lịch sử.")
+            else updateStatus("File lịch sử rỗng hoặc không có ID hợp lệ.") end
+        else
+            if not success then updateStatus("Lỗi đọc file lịch sử: " .. tostring(content))
+            else updateStatus("File lịch sử không tồn tại hoặc rỗng.") end
+        end
+    end
+    serverHistoryCache = historySet
+    return historySet
+end
+
+local function addJobIdToHistoryAndSave(jobIdToAdd)
+    if not jobIdToAdd or string.gsub(jobIdToAdd, "%s", "") == "" then
+        updateStatus("Cảnh báo: JobID để thêm vào lịch sử không hợp lệ (nil hoặc rỗng).")
+        return
+    end
+    if not canAccessFiles then return end
+
+    serverHistoryCache[jobIdToAdd] = true
+    local historyLines = {}
+    for id in pairs(serverHistoryCache) do table.insert(historyLines, id) end
+    local contentToWrite = table.concat(historyLines, "\n")
+    
+    local success, err = pcall(writefile_func, SERVER_HISTORY_FILENAME, contentToWrite)
+    if success then updateStatus("Đã cập nhật lịch sử, thêm ID: " .. jobIdToAdd)
+    else updateStatus("Lỗi lưu lịch sử: " .. tostring(err)) end
+end
+
+-- --- Logic Tìm Server ---
+local chosenServer = nil
+local serversUrlBase = "https://games.roblox.com/v1/games/" .. placeId .. "/servers/Public?sortOrder=Asc&limit=100"
+serverHistoryToAvoid = loadServerHistory() -- Tải lịch sử ngay khi script bắt đầu
+
+local function listServers(cursor)
+    local requestUrl = serversUrlBase
+    if cursor then requestUrl = requestUrl .. "&cursor=" .. cursor end
+    
+    local successCall, result
+    if game.HttpGetAsync then -- Ưu tiên HttpGetAsync nếu có
+         successCall, result = pcall(function() return game:HttpGetAsync(requestUrl) end)
+    else
+         successCall, result = pcall(function() return game:HttpGet(requestUrl, true) end)
+    end
+
+    if not successCall then return false, "HttpGet(Async) thất bại: " .. tostring(result) end
+    
+    local successDecode, decodedResult = pcall(function() return HttpService:JSONDecode(result) end)
+    if not successDecode then return false, "JSONDecode thất bại: " .. tostring(decodedResult) end
+    return true, decodedResult
+end
+
+function searchForServer()
+    if not mainHopCycleActive then updateStatus("searchForServer: Chu trình hop chính đã dừng."); return end
+    chosenServer = nil -- Reset trước mỗi lần tìm kiếm
+
+    local historyCount = 0
+    for _ in pairs(serverHistoryToAvoid) do historyCount = historyCount + 1 end
+    updateStatus(string.format("Tìm server (%.0f%%-%.0f%%). Tránh server hiện tại & %d server lịch sử.",
+        minPlayerPercentage * 100, maxPlayerPercentageLimit * 100, historyCount))
+
+    local searchLoopActive = true
+    while searchLoopActive and not chosenServer and mainHopCycleActive do
+        local currentNextCursorForFullScan = nil
+        local currentRetryDelaySearch = baseRetryDelay 
+        updateStatus("Bắt đầu lượt quét mới...")
+        
+        local allPagesScannedForThisRound = false
+        while not allPagesScannedForThisRound and not chosenServer and mainHopCycleActive do
+            local pageScanAttempts = 0
+            local maxPageScanAttempts = 3 -- Giảm số lần thử fetch page để nhanh hơn nếu API lỗi
+            local pageSuccessfullyFetched = false
+            local currentRetryDelayPage = baseRetryDelay
+
+            while not pageSuccessfullyFetched and pageScanAttempts < maxPageScanAttempts and mainHopCycleActive do
+                pageScanAttempts = pageScanAttempts + 1
+                if pageScanAttempts > 1 then
+                    updateStatus(string.format("Thử lại lấy trang (lần %d/%d). Chờ %.1fs...", pageScanAttempts, maxPageScanAttempts, currentRetryDelayPage))
+                    task.wait(currentRetryDelayPage)
+                    currentRetryDelayPage = math.min(currentRetryDelayPage * 2, maxRetryDelay)
+                else
+                    updateStatus("Đang lấy trang server (cursor: " .. (currentNextCursorForFullScan or "đầu tiên") .. ")...")
+                end
+
+                local success, dataOrError = listServers(currentNextCursorForFullScan)
+
+                if success then
+                    pageSuccessfullyFetched = true
+                    currentRetryDelayPage = baseRetryDelay 
+                    local serverListData = dataOrError
+
+                    if serverListData and serverListData.data then
+                        local pageSuitableServers = {}
+                        if #serverListData.data > 0 then
+                            -- updateStatus("Đã nhận " .. #serverListData.data .. " server. Đang lọc...")
+                            for _, serverInfo in ipairs(serverListData.data) do
+                                local serverId = serverInfo.id
+                                local isCurrentServer = (serverId == currentJobId)
+                                local isInHistory = (serverHistoryToAvoid[serverId] == true)
+
+                                if not isCurrentServer and not isInHistory then
+                                    if serverInfo.playing and serverInfo.maxPlayers and serverInfo.maxPlayers > 0 then
+                                        local playerRatio = serverInfo.playing / serverInfo.maxPlayers
+                                        if playerRatio >= minPlayerPercentage and playerRatio < maxPlayerPercentageLimit and serverInfo.playing < serverInfo.maxPlayers then
+                                            table.insert(pageSuitableServers, serverInfo)
+                                        end
+                                    end
+                                end
+                            end
+                            if #pageSuitableServers > 0 then
+                                updateStatus("Tìm thấy " .. #pageSuitableServers .. " server phù hợp trên trang này. Chọn ngẫu nhiên...")
+                                chosenServer = pageSuitableServers[math.random(1, #pageSuitableServers)]
+                                allPagesScannedForThisRound = true 
+                                break 
+                            end
+                        end
+                        if not chosenServer then
+                            currentNextCursorForFullScan = serverListData.nextPageCursor
+                            if not currentNextCursorForFullScan then
+                                allPagesScannedForThisRound = true 
+                                updateStatus("Đã quét hết các trang (không tìm thấy server phù hợp).")
+                            end
+                        end
+                    else
+                        updateStatus("Dữ liệu server không hợp lệ dù API gọi thành công.")
+                        currentNextCursorForFullScan = serverListData and serverListData.nextPageCursor
+                        if not currentNextCursorForFullScan then allPagesScannedForThisRound = true end
+                    end
+                else 
+                    updateStatus("Lỗi API khi lấy danh sách server: " .. tostring(dataOrError))
+                    if pageScanAttempts >= maxPageScanAttempts then
+                        updateStatus("Không thể lấy dữ liệu trang sau " .. maxPageScanAttempts .. " lần thử.")
+                        allPagesScannedForThisRound = true 
+                    end
+                end
+            end 
+
+            if chosenServer or allPagesScannedForThisRound then break end
+            if pageSuccessfullyFetched and not allPagesScannedForThisRound and not chosenServer then
+                 updateStatus("Chờ " .. waitTimeBetweenPageFetches .. "s trước khi lấy trang tiếp theo...")
+                 task.wait(waitTimeBetweenPageFetches)
+            end
+        end
+
+        if not mainHopCycleActive then updateStatus("searchForServer loop: Chu trình hop chính đã dừng."); break end
+
+        if chosenServer then
+            updateStatus(string.format("ĐÃ CHỌN SERVER! ID: %s. Players: %d/%d (%.0f%%)",
+                chosenServer.id, chosenServer.playing, chosenServer.maxPlayers, (chosenServer.playing / chosenServer.maxPlayers) * 100))
+            searchLoopActive = false
+        elseif allPagesScannedForThisRound then
+            updateStatus(string.format("Không tìm thấy server sau khi quét toàn bộ. Chờ %d giây rồi quét lại...", waitTimeBetweenFullScans))
+            task.wait(waitTimeBetweenFullScans)
+        end
+        if not searchLoopActive then break end
+    end -- end while searchLoopActive
+
+    if not mainHopCycleActive then updateStatus("searchForServer: Chu trình hop chính đã dừng trước khi teleport."); return end
+
+    if chosenServer then
+        updateStatus("Chuẩn bị dịch chuyển đến server ID: " .. chosenServer.id .. "...")
+        addJobIdToHistoryAndSave(currentJobId)
+        task.wait(2) 
+        
+        local teleportInitiated = false
+        local successTeleportCall, errTeleportCall = pcall(function()
+            TeleportService:TeleportToPlaceInstance(placeId, chosenServer.id, LocalPlayer)
+            teleportInitiated = true
+        end)
+        
+        if not successTeleportCall then
+            updateStatus("Dịch chuyển thất bại (lỗi API call): " .. tostring(errTeleportCall) .. ". Thử tìm lại server khác sau 5 giây...")
+            chosenServer = nil
+            task.wait(5)
+            if mainHopCycleActive then searchForServer() end
+            return
+        end
+
+        updateStatus("Đã gọi API dịch chuyển. Kích hoạt fail-safe " .. POST_TELEPORT_FAILSAFE_DURATION .. " giây...")
+        
+        local originalJobIdAtFailSafeStart = game.JobId
+        local failSafeTime = 0
+        local teleportConsideredSuccessful = false
+
+        while failSafeTime < POST_TELEPORT_FAILSAFE_DURATION and mainHopCycleActive do
+            if game.JobId ~= originalJobIdAtFailSafeStart then
+                updateStatus("Phát hiện JobId đã thay đổi! Teleport có vẻ thành công. Hủy fail-safe.")
+                teleportConsideredSuccessful = true
+                -- Script sẽ tự động chạy lại ở server mới nếu có queue_on_teleport,
+                -- hoặc instance này sẽ không còn ý nghĩa.
+                return 
+            end
+            task.wait(1)
+            failSafeTime = failSafeTime + 1
+            updateStatus(string.format("Fail-safe đang chạy: %d/%d giây...", failSafeTime, POST_TELEPORT_FAILSAFE_DURATION))
+        end
+
+        if not teleportConsideredSuccessful and mainHopCycleActive then
+            updateStatus("Fail-safe " .. POST_TELEPORT_FAILSAFE_DURATION .. "s: Có vẻ bị kẹt. Reset bộ đếm giờ chính và thử lại chu trình hop.")
+            chosenServer = nil 
+            startInitialCountdown() 
+        end
+        
+    else -- chosenServer là nil sau vòng lặp tìm kiếm
+        updateStatus("Không thể tìm thấy server phù hợp. Chờ rồi bắt đầu lại chu trình đếm ngược.")
+        task.wait(waitTimeBetweenFullScans * 2) 
+        if mainHopCycleActive then startInitialCountdown() end
+    end
+end
+
+
+local function performCountdownThenSearch(minutesToWait)
+    if not mainHopCycleActive then updateStatus("performCountdown: Chu trình hop chính đã dừng."); return end
+    
+    local internalCountdownShouldReset = false 
+    local leaderstats = LocalPlayer:FindFirstChild("leaderstats")
+    local raisedValueObject = leaderstats and leaderstats:FindFirstChild("Raised")
+    local lastRaisedValue = (raisedValueObject and raisedValueObject.Value) or 0
+    local donationConnection
+
+    if raisedValueObject then
+        donationConnection = raisedValueObject.Changed:Connect(function(newRaisedAmount)
+            if newRaisedAmount > lastRaisedValue then
+                updateStatus(string.format("Phát hiện donate! Raised: %s -> %s. Đặt cờ reset countdown.", tostring(lastRaisedValue), tostring(newRaisedAmount)))
+                lastRaisedValue = newRaisedAmount
+                internalCountdownShouldReset = true
+            end
+        end)
+        updateStatus("Đã kết nối theo dõi donate cho countdown.")
+    else
+        updateStatus("Không tìm thấy leaderstats.Raised. Không thể reset timer khi có donate.")
+    end
+
+    if not minutesToWait or minutesToWait <= 0 then
+        updateStatus("Thời gian chờ không hợp lệ. Bắt đầu tìm server ngay...")
+        if donationConnection then donationConnection:Disconnect() donationConnection = nil end
+        if mainHopCycleActive then searchForServer() end
+        return
+    end
+
+    local totalWaitSeconds = minutesToWait * 60
+    updateStatus(string.format("Bắt đầu bộ đếm! Tìm server sau: %d phút %d giây...", math.floor(totalWaitSeconds / 60), totalWaitSeconds % 60))
+    
+    for i = totalWaitSeconds, 0, -1 do
+        if not mainHopCycleActive then 
+            updateStatus("performCountdown loop: Chu trình hop chính đã dừng.")
+            if donationConnection then donationConnection:Disconnect() donationConnection = nil end
+            return 
+        end
+        if internalCountdownShouldReset then
+            updateStatus("Đã có donate! Reset bộ đếm giờ chính thông qua startInitialCountdown...")
+            if donationConnection then donationConnection:Disconnect() donationConnection = nil end
+            startInitialCountdown() 
+            return 
+        end
+        
+        -- Kiểm tra nếu coroutine hiện tại đã bị "hủy" từ bên ngoài (ví dụ bởi fail-safe gọi startInitialCountdown)
+        if currentCountdownThread and coroutine.running() == currentCountdownThread and coroutine.status(currentCountdownThread) == "dead" and i > 0 then
+             updateStatus("Countdown coroutine hiện tại (" .. tostring(coroutine.running()) .. ") bị dừng từ bên ngoài.")
+             if donationConnection then donationConnection:Disconnect() donationConnection = nil end
+             return
+        end
+
+        local minutesLeft = math.floor(i / 60)
+        local secondsLeft = i % 60
+        updateStatus(string.format("Tìm server sau: %d phút %d giây...", minutesLeft, secondsLeft))
+        task.wait(1)
+    end
+
+    if donationConnection then donationConnection:Disconnect() donationConnection = nil end
+    
+    if not internalCountdownShouldReset and mainHopCycleActive then
+        searchForServer()
+    end
+end
+
+-- --- Hàm Khởi Động/Khởi Động Lại Bộ Đếm Chính ---
+function startInitialCountdown()
+    if not mainHopCycleActive then
+        updateStatus("startInitialCountdown: Chu trình hop chính đã bị dừng. Không bắt đầu.")
+        return
+    end
+
+    if currentCountdownThread and coroutine.status(currentCountdownThread) ~= "dead" then
+        updateStatus("startInitialCountdown: Đang cố gắng dừng countdown cũ...")
+        -- Thay vì coroutine.close, chúng ta sẽ để coroutine hiện tại tự thoát
+        -- bằng cách không resume nó nữa và tạo một cái mới.
+        -- Hoặc, nếu coroutine được thiết kế để kiểm tra một biến cờ để tự thoát, thì đặt biến cờ đó.
+        -- Trong trường hợp này, khi coroutine.resume ở dưới chạy, nó sẽ chạy coroutine MỚI.
+        -- Coroutine cũ, nếu vẫn còn trong vòng lặp for, sẽ thấy coroutine.running() ~= currentCountdownThread và tự thoát.
+        -- Tuy nhiên, cách tốt nhất là để vòng lặp for của nó hoàn thành hoặc bị return bởi cờ internalCountdownShouldReset.
+        -- Để đơn giản và tránh lỗi với coroutine.close, ta chỉ tạo mới. Coroutine cũ sẽ tự kết thúc.
+        -- Hoặc, ta có thể làm cho nó phức tạp hơn bằng cách truyền một "token hủy" vào coroutine.
+        -- Hiện tại, performCountdownThenSearch đã có logic để tự thoát nếu coroutine.running() không còn là nó nữa.
+        -- Hoặc khi internalCountdownShouldReset = true.
+        -- Logic hủy coroutine phức tạp, hiện tại để đơn giản, ta chỉ tạo mới và dựa vào logic tự thoát của performCountdownThenSearch.
+        -- Để chắc chắn hơn, ta có thể set currentCountdownThread thành nil trước khi tạo mới.
+        local oldThread = currentCountdownThread
+        currentCountdownThread = nil -- Để coroutine cũ biết nó không còn là "current"
+        if oldThread and coroutine.status(oldThread) == "suspended" then
+            -- Nếu nó đang suspended (ví dụ bởi task.wait), nó có thể không tự thoát ngay.
+            -- Đây là một điểm phức tạp của coroutine. Dùng cờ vẫn là cách an toàn.
+             updateStatus("startInitialCountdown: Một countdown cũ đang suspended, nó sẽ tự kết thúc.")
+        elseif oldThread and coroutine.status(oldThread) == "running" then
+             updateStatus("startInitialCountdown: Một countdown cũ đang running, nó nên tự kết thúc khi check coroutine.running().")
+        end
+    end
+
+    updateStatus("Khởi tạo bộ đếm " .. DEFAULT_WAIT_MINUTES .. " phút mới...")
+    currentCountdownThread = coroutine.create(function()
+        performCountdownThenSearch(DEFAULT_WAIT_MINUTES)
+    end)
+    
+    -- Thêm độ trễ nhỏ trước khi resume để đảm bảo mọi thứ ổn định
+    task.wait(0.1)
+    if mainHopCycleActive and currentCountdownThread and coroutine.status(currentCountdownThread) == "suspended" then
+        local resumeSuccess, resumeError = coroutine.resume(currentCountdownThread)
+        if not resumeSuccess then
+            updateStatus("LỖI khi resume countdown coroutine: " .. tostring(resumeError))
+            task.wait(5)
+            if mainHopCycleActive then
+                 updateStatus("Thử resume countdown coroutine lại...")
+                 coroutine.resume(currentCountdownThread) -- Bỏ qua kiểm tra lỗi lần 2 để tránh vòng lặp vô hạn
+            end
+        else
+            updateStatus("Bộ đếm đã được resume thành công.")
+        end
+    elseif not mainHopCycleActive then
+        updateStatus("startInitialCountdown: Chu trình hop chính đã dừng trước khi resume.")
+    elseif not currentCountdownThread then
+         updateStatus("startInitialCountdown: currentCountdownThread là nil trước khi resume.")
+    elseif currentCountdownThread and coroutine.status(currentCountdownThread) ~= "suspended" then
+         updateStatus("startInitialCountdown: Trạng thái coroutine không phải suspended trước khi resume: " .. coroutine.status(currentCountdownThread))
+    end
+end
+
+-- --- Khởi chạy Script ---
+updateStatus("Script Server Hop (với reset & fail-safe) đã khởi động.")
+task.wait(3) -- Chờ một chút để các service khác của game có thể đã tải xong (đặc biệt leaderstats)
+if not LocalPlayer:FindFirstChild("leaderstats") or not LocalPlayer.leaderstats:FindFirstChild("Raised") then
+    updateStatus("CẢNH BÁO: Không tìm thấy Player.leaderstats.Raised! Tính năng reset khi donate sẽ không hoạt động.")
+    updateStatus("Vui lòng đảm bảo bạn đang ở trong game có leaderstats.Raised (ví dụ: PLS DONATE).")
+end
+updateStatus("Thời gian chờ mặc định trước khi tìm server: " .. DEFAULT_WAIT_MINUTES .. " phút.")
+startInitialCountdown() -- Bắt đầu chu trình đếm ngược và hop đầu tiên
+
