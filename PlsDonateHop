@@ -64,7 +64,7 @@ statusTextLabel.BackgroundTransparency = 1 -- Nền trong suốt
 
 -- Màu chữ hồng neon rực rỡ
 statusTextLabel.TextColor3 = Color3.fromRGB(255, 0, 255) -- Màu Magenta/Fuchsia (Neon Pink)
--- Hoặc thử: Color3.fromRGB(255, 105, 180) -- HotPink
+-- Hoặc thử: Color3.fromRGB(255, 87, 51) -- HotPink
 -- Hoặc: Color3.fromRGB(255, 20, 147) -- DeepPink
 
 statusTextLabel.Font = Enum.Font.SourceSansSemibold -- Giữ font gốc (hoặc chọn font khác nếu muốn)
