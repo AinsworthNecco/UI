@@ -24,7 +24,7 @@ local SERVER_HISTORY_FILENAME = "server_hop_history.txt"
 -- Giá trị từ 0.1 (rất nhỏ) đến 1.0 (toàn bộ chiều cao màn hình).
 -- Ví dụ: 0.5 là 50% chiều cao màn hình, 0.7 là 70% chiều cao màn hình.
 -- Thử giá trị lớn hơn để chữ to hơn nữa.
-local TEXT_DISPLAY_HEIGHT_SCALE = 0.1 -- Mặc định là 0.85 (85% chiều cao), tăng từ 0.7
+local TEXT_DISPLAY_HEIGHT_SCALE = 10 -- Mặc định là 0.85 (85% chiều cao), tăng từ 0.7
 
 -- --- Kiểm tra và gán hàm đọc/ghi file (NẾU CÓ) ---
 local canAccessFiles = false
