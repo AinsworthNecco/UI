@@ -21,7 +21,7 @@ local SERVER_HISTORY_FILENAME = "server_hop_history.txt"
 
 -- [[ NEW CONFIG FOR FIXED TEXT SIZE ]]
 -- Đặt kích thước chữ cố định bằng pixel.
-local FIXED_TEXT_SIZE = 30 -- Kích thước chữ cố định là 300 pixels
+local FIXED_TEXT_SIZE = 50 -- Kích thước chữ cố định là 300 pixels
 
 -- --- Kiểm tra và gán hàm đọc/ghi file (NẾU CÓ) ---
 local canAccessFiles = false
@@ -44,6 +44,10 @@ statusScreenGui = Instance.new("ScreenGui")
 statusScreenGui.Name = "ServerHopStatusGUI"
 statusScreenGui.ResetOnSpawn = false
 statusScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+-- [[ MODIFICATION FOR BETTER CENTERING ]]
+-- Bỏ qua phần diện tích bị chiếm bởi các thanh UI mặc định của Roblox (ví dụ: top bar)
+-- để việc căn giữa được chính xác hơn trên toàn màn hình.
+statusScreenGui.IgnoreGuiInset = true
 statusScreenGui.Parent = playerGui
 
 local statusTextLabel = Instance.new("TextLabel")
