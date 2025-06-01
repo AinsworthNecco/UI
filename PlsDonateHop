@@ -24,7 +24,7 @@ local SERVER_HISTORY_FILENAME = "server_hop_history.txt"
 -- Giá trị từ 0.1 (rất nhỏ) đến 1.0 (toàn bộ chiều cao màn hình).
 -- Ví dụ: 0.5 là 50% chiều cao màn hình, 0.7 là 70% chiều cao màn hình.
 -- Thử giá trị lớn hơn để chữ to hơn nữa.
-local TEXT_DISPLAY_HEIGHT_SCALE = 10 -- Mặc định là 0.85 (85% chiều cao), tăng từ 0.7
+local TEXT_DISPLAY_HEIGHT_SCALE = 0.85 -- Mặc định là 0.85 (85% chiều cao)
 
 -- --- Kiểm tra và gán hàm đọc/ghi file (NẾU CÓ) ---
 local canAccessFiles = false
@@ -59,10 +59,15 @@ statusTextLabel.AnchorPoint = Vector2.new(0.5, 0.5) -- Đặt điểm neo ở gi
 statusTextLabel.BackgroundTransparency = 1 -- Nền trong suốt
 statusTextLabel.TextColor3 = Color3.fromRGB(255, 255, 255) -- Màu chữ trắng
 statusTextLabel.Font = Enum.Font.SourceSansSemibold -- Giữ font gốc
+
+-- [[ NEW ATTEMPT TO MAKE TEXT LARGER ]]
+-- Đặt một TextSize cơ bản rất lớn. TextScaled sẽ co nó lại nếu cần để vừa với bounds.
+statusTextLabel.TextSize = 100 -- Giá trị này lớn, TextScaled sẽ điều chỉnh
+
 statusTextLabel.TextScaled = true -- Quan trọng: Cho phép text tự điều chỉnh kích thước để vừa với label
 statusTextLabel.TextXAlignment = Enum.TextXAlignment.Center -- Căn chữ theo chiều ngang
 statusTextLabel.TextYAlignment = Enum.TextYAlignment.Center -- Căn chữ theo chiều dọc
-statusTextLabel.TextWrapped = false -- Không cần thiết khi TextScaled = true
+statusTextLabel.TextWrapped = false -- Không cần thiết khi TextScaled = true cho nội dung ngắn
 -- [[ MODIFIED UI PROPERTIES END ]]
 statusTextLabel.Text = "Đang khởi tạo..." -- Văn bản ban đầu
 statusTextLabel.Parent = statusScreenGui
