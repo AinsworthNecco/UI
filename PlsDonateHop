@@ -21,7 +21,7 @@ local SERVER_HISTORY_FILENAME = "server_hop_history.txt"
 
 -- [[ NEW CONFIG FOR FIXED TEXT SIZE ]]
 -- Đặt kích thước chữ cố định bằng pixel.
-local FIXED_TEXT_SIZE = 50 -- Kích thước chữ cố định là 300 pixels
+local FIXED_TEXT_SIZE = 30 -- Kích thước chữ cố định là 300 pixels
 
 -- --- Kiểm tra và gán hàm đọc/ghi file (NẾU CÓ) ---
 local canAccessFiles = false
@@ -48,19 +48,22 @@ statusScreenGui.Parent = playerGui
 
 local statusTextLabel = Instance.new("TextLabel")
 statusTextLabel.Name = "StatusLabel"
--- [[ MODIFIED UI PROPERTIES FOR FIXED TEXT SIZE, NEON YELLOW TEXT, NEON BLUE OUTLINE ]]
+-- [[ MODIFIED UI PROPERTIES FOR NEON PINK TEXT, NO OUTLINE ]]
 
 -- Kích thước của label cần đủ lớn cho chữ kích thước 300.
 -- Sử dụng Offset cho chiều cao để đảm bảo đủ không gian.
--- Chiều rộng 90% màn hình, chiều cao là kích thước chữ + một chút padding (ví dụ: 40px).
-statusTextLabel.Size = UDim2.new(0.9, 0, 0, FIXED_TEXT_SIZE + 40)
+-- Chiều rộng 90% màn hình, chiều cao là kích thước chữ + một chút padding (ví dụ: 20px).
+statusTextLabel.Size = UDim2.new(0.9, 0, 0, FIXED_TEXT_SIZE + 20) -- Giảm padding một chút vì không còn viền
 statusTextLabel.Position = UDim2.new(0.5, 0, 0.5, 0) -- Căn giữa màn hình
 statusTextLabel.AnchorPoint = Vector2.new(0.5, 0.5) -- Đặt điểm neo ở giữa label
 statusTextLabel.BackgroundTransparency = 1 -- Nền trong suốt
 
--- Màu chữ vàng neon
-statusTextLabel.TextColor3 = Color3.fromRGB(255, 255, 0) -- Vàng sáng (Neon Yellow)
-statusTextLabel.Font = Enum.Font.SourceSansSemibold -- Giữ font gốc (hoặc chọn font khác nếu muốn, ví dụ: FredokaOne cho vẻ ngoài "chunky" hơn)
+-- Màu chữ hồng neon rực rỡ
+statusTextLabel.TextColor3 = Color3.fromRGB(255, 0, 255) -- Màu Magenta/Fuchsia (Neon Pink)
+-- Hoặc thử: Color3.fromRGB(255, 105, 180) -- HotPink
+-- Hoặc: Color3.fromRGB(255, 20, 147) -- DeepPink
+
+statusTextLabel.Font = Enum.Font.SourceSansSemibold -- Giữ font gốc (hoặc chọn font khác nếu muốn)
 
 statusTextLabel.TextScaled = false -- KHÔNG sử dụng TextScaled
 statusTextLabel.TextSize = FIXED_TEXT_SIZE -- Sử dụng kích thước chữ cố định từ cấu hình
@@ -70,14 +73,7 @@ statusTextLabel.TextYAlignment = Enum.TextYAlignment.Center -- Căn chữ theo c
 statusTextLabel.TextWrapped = false -- Với kích thước chữ lớn và nội dung ngắn (MM:SS), không cần wrap
 statusTextLabel.Parent = statusScreenGui
 
--- Tạo viền xanh neon cho chữ
-local uiStroke = Instance.new("UIStroke")
-uiStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Contextual
-uiStroke.Color = Color3.fromRGB(0, 255, 255) -- Xanh neon (Cyan / Neon Blue)
-uiStroke.Thickness = math.max(2, FIXED_TEXT_SIZE / 40) -- Độ dày viền tỷ lệ với kích thước chữ, ví dụ 300/40 = 7.5 (làm tròn lên hoặc xuống), tối thiểu 2
-uiStroke.LineJoinMode = Enum.LineJoinMode.Round -- Làm tròn các góc của viền
-uiStroke.Transparency = 0 -- Viền không trong suốt
-uiStroke.Parent = statusTextLabel
+-- [[ UIStroke (viền) đã được loại bỏ ]]
 
 -- [[ MODIFIED UI PROPERTIES END ]]
 statusTextLabel.Text = "..." -- Văn bản khởi tạo ngắn gọn
