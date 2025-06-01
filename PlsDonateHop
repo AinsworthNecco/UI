@@ -19,6 +19,12 @@ local maxRetryDelay = 16
 
 local SERVER_HISTORY_FILENAME = "server_hop_history.txt"
 
+-- [[ NEW CONFIG FOR TEXT SIZE ]]
+-- Điều chỉnh giá trị này để thay đổi kích thước trực quan của văn bản.
+-- Giá trị từ 0.1 (rất nhỏ) đến 1.0 (toàn bộ chiều cao màn hình).
+-- Ví dụ: 0.5 là 50% chiều cao màn hình, 0.7 là 70% chiều cao màn hình.
+local TEXT_DISPLAY_HEIGHT_SCALE = 0.7 -- Mặc định là 0.7 (70% chiều cao), lớn hơn 0.5 trước đó
+
 -- --- Kiểm tra và gán hàm đọc/ghi file (NẾU CÓ) ---
 local canAccessFiles = false
 local writefile_func, readfile_func
@@ -45,7 +51,8 @@ statusScreenGui.Parent = playerGui
 local statusTextLabel = Instance.new("TextLabel")
 statusTextLabel.Name = "StatusLabel"
 -- [[ MODIFIED UI PROPERTIES START ]]
-statusTextLabel.Size = UDim2.new(0.9, 0, 0.5, 0) -- 90% chiều rộng (để có chút lề), 50% chiều cao màn hình
+-- Sử dụng TEXT_DISPLAY_HEIGHT_SCALE từ cấu hình để đặt chiều cao của label
+statusTextLabel.Size = UDim2.new(0.9, 0, TEXT_DISPLAY_HEIGHT_SCALE, 0) -- 90% chiều rộng, chiều cao tùy chỉnh
 statusTextLabel.Position = UDim2.new(0.5, 0, 0.5, 0) -- Căn giữa màn hình
 statusTextLabel.AnchorPoint = Vector2.new(0.5, 0.5) -- Đặt điểm neo ở giữa label
 statusTextLabel.BackgroundTransparency = 1 -- Nền trong suốt
@@ -55,7 +62,6 @@ statusTextLabel.TextScaled = true -- Quan trọng: Cho phép text tự điều c
 statusTextLabel.TextXAlignment = Enum.TextXAlignment.Center -- Căn chữ theo chiều ngang
 statusTextLabel.TextYAlignment = Enum.TextYAlignment.Center -- Căn chữ theo chiều dọc
 statusTextLabel.TextWrapped = false -- Không cần thiết khi TextScaled = true
--- statusTextLabel.TextSize = 18 -- Kích thước cơ bản, TextScaled sẽ ghi đè kích thước trực quan
 -- [[ MODIFIED UI PROPERTIES END ]]
 statusTextLabel.Text = "Đang khởi tạo..." -- Văn bản ban đầu
 statusTextLabel.Parent = statusScreenGui
