@@ -23,7 +23,8 @@ local SERVER_HISTORY_FILENAME = "server_hop_history.txt"
 -- Điều chỉnh giá trị này để thay đổi kích thước trực quan của văn bản.
 -- Giá trị từ 0.1 (rất nhỏ) đến 1.0 (toàn bộ chiều cao màn hình).
 -- Ví dụ: 0.5 là 50% chiều cao màn hình, 0.7 là 70% chiều cao màn hình.
-local TEXT_DISPLAY_HEIGHT_SCALE = 0.7 -- Mặc định là 0.7 (70% chiều cao), lớn hơn 0.5 trước đó
+-- Thử giá trị lớn hơn để chữ to hơn nữa.
+local TEXT_DISPLAY_HEIGHT_SCALE = 0.85 -- Mặc định là 0.85 (85% chiều cao), tăng từ 0.7
 
 -- --- Kiểm tra và gán hàm đọc/ghi file (NẾU CÓ) ---
 local canAccessFiles = false
