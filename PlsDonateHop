@@ -22,7 +22,7 @@ local SERVER_HISTORY_FILENAME = "server_hop_history.txt"
 -- [[ NEW CONFIG FOR FIXED TEXT SIZE ]]
 -- Đặt kích thước chữ cố định bằng pixel.
 -- Ví dụ: 30, 50, 70, 100. Hãy thử nghiệm để tìm giá trị phù hợp.
-local FIXED_TEXT_SIZE = 70 -- Kích thước chữ cố định, ví dụ 70 pixels
+local FIXED_TEXT_SIZE = 300 -- Kích thước chữ cố định, ví dụ 70 pixels
 
 -- --- Kiểm tra và gán hàm đọc/ghi file (NẾU CÓ) ---
 local canAccessFiles = false
