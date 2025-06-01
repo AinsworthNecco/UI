@@ -19,12 +19,10 @@ local maxRetryDelay = 16
 
 local SERVER_HISTORY_FILENAME = "server_hop_history.txt"
 
--- [[ NEW CONFIG FOR TEXT SIZE ]]
--- Điều chỉnh giá trị này để thay đổi kích thước trực quan của văn bản.
--- Giá trị từ 0.1 (rất nhỏ) đến 1.0 (toàn bộ chiều cao màn hình).
--- Ví dụ: 0.5 là 50% chiều cao màn hình, 0.7 là 70% chiều cao màn hình.
--- Thử giá trị lớn hơn để chữ to hơn nữa.
-local TEXT_DISPLAY_HEIGHT_SCALE = 0.85 -- Mặc định là 0.85 (85% chiều cao)
+-- [[ NEW CONFIG FOR FIXED TEXT SIZE ]]
+-- Đặt kích thước chữ cố định bằng pixel.
+-- Ví dụ: 30, 50, 70, 100. Hãy thử nghiệm để tìm giá trị phù hợp.
+local FIXED_TEXT_SIZE = 70 -- Kích thước chữ cố định, ví dụ 70 pixels
 
 -- --- Kiểm tra và gán hàm đọc/ghi file (NẾU CÓ) ---
 local canAccessFiles = false
@@ -51,23 +49,24 @@ statusScreenGui.Parent = playerGui
 
 local statusTextLabel = Instance.new("TextLabel")
 statusTextLabel.Name = "StatusLabel"
--- [[ MODIFIED UI PROPERTIES START ]]
--- Sử dụng TEXT_DISPLAY_HEIGHT_SCALE từ cấu hình để đặt chiều cao của label
-statusTextLabel.Size = UDim2.new(0.9, 0, TEXT_DISPLAY_HEIGHT_SCALE, 0) -- 90% chiều rộng, chiều cao tùy chỉnh
+-- [[ MODIFIED UI PROPERTIES FOR FIXED TEXT SIZE ]]
+-- Kích thước của label có thể cần điều chỉnh để vừa với chữ.
+-- Chiều cao có thể đặt là 0 và dựa vào kích thước chữ, hoặc một giá trị Scale nhỏ hơn.
+-- Hoặc đặt SizeConstraint để chiều cao tự động theo nội dung.
+statusTextLabel.Size = UDim2.new(0.9, 0, 0.3, 0) -- 90% chiều rộng, chiều cao Scale nhỏ hơn (30% màn hình)
+                                                 -- hoặc UDim2.new(0.9, 0, 0, FIXED_TEXT_SIZE + 20) -- Chiều cao offset dựa trên kích thước chữ
 statusTextLabel.Position = UDim2.new(0.5, 0, 0.5, 0) -- Căn giữa màn hình
 statusTextLabel.AnchorPoint = Vector2.new(0.5, 0.5) -- Đặt điểm neo ở giữa label
 statusTextLabel.BackgroundTransparency = 1 -- Nền trong suốt
 statusTextLabel.TextColor3 = Color3.fromRGB(255, 255, 255) -- Màu chữ trắng
 statusTextLabel.Font = Enum.Font.SourceSansSemibold -- Giữ font gốc
 
--- [[ NEW ATTEMPT TO MAKE TEXT LARGER ]]
--- Đặt một TextSize cơ bản rất lớn. TextScaled sẽ co nó lại nếu cần để vừa với bounds.
-statusTextLabel.TextSize = 100 -- Giá trị này lớn, TextScaled sẽ điều chỉnh
+statusTextLabel.TextScaled = false -- KHÔNG sử dụng TextScaled nữa
+statusTextLabel.TextSize = FIXED_TEXT_SIZE -- Sử dụng kích thước chữ cố định từ cấu hình
 
-statusTextLabel.TextScaled = true -- Quan trọng: Cho phép text tự điều chỉnh kích thước để vừa với label
 statusTextLabel.TextXAlignment = Enum.TextXAlignment.Center -- Căn chữ theo chiều ngang
 statusTextLabel.TextYAlignment = Enum.TextYAlignment.Center -- Căn chữ theo chiều dọc
-statusTextLabel.TextWrapped = false -- Không cần thiết khi TextScaled = true cho nội dung ngắn
+statusTextLabel.TextWrapped = true -- Cho phép xuống dòng nếu văn bản quá dài cho chiều rộng của label
 -- [[ MODIFIED UI PROPERTIES END ]]
 statusTextLabel.Text = "Đang khởi tạo..." -- Văn bản ban đầu
 statusTextLabel.Parent = statusScreenGui
@@ -75,7 +74,6 @@ statusTextLabel.Parent = statusScreenGui
 local function updateStatus(message)
     print("[ServerHop] " .. message) -- Giữ log console
     if statusTextLabel and statusTextLabel.Parent then
-        -- Tất cả các tin nhắn qua updateStatus sẽ sử dụng định dạng lớn, căn giữa mới
         statusTextLabel.Text = message
     end
 end
@@ -267,37 +265,32 @@ local currentCountdownThread = nil
 
 local function performCountdownThenSearch(minutesToWait)
     if not minutesToWait or minutesToWait <= 0 then
-        updateStatus("Thời gian chờ lỗi. Tìm ngay...") -- Sẽ hiển thị lớn
+        updateStatus("Thời gian chờ lỗi. Tìm ngay...") 
         searchForServer()
         return
     end
 
     local totalWaitSeconds = minutesToWait * 60
-    -- Log ra console, label sẽ hiển thị MM:SS ngay trong vòng lặp
     print(string.format("[ServerHop] Đã đặt giờ! Bắt đầu tìm server sau: %d phút %d giây...", math.floor(totalWaitSeconds / 60), totalWaitSeconds % 60))
     
     for i = totalWaitSeconds, 0, -1 do
         if countdownShouldReset then 
             countdownShouldReset = false 
-            updateStatus("Donate! Reset đếm ngược.") -- Sẽ hiển thị lớn
+            updateStatus("Donate! Reset đếm ngược.") 
             performCountdownThenSearch(DEFAULT_WAIT_MINUTES) 
             return 
         end
         local minutesLeft = math.floor(i / 60)
         local secondsLeft = i % 60
         
-        -- [[ MODIFIED COUNTDOWN DISPLAY ]]
-        -- Trực tiếp cập nhật label với định dạng MM:SS
         if statusTextLabel and statusTextLabel.Parent then
             statusTextLabel.Text = string.format("%02d:%02d", minutesLeft, secondsLeft)
         end
-        -- Tùy chọn: log chi tiết hơn ra console nếu muốn
-        -- print(string.format("[ServerHop] Console Countdown: %d phút %d giây...", minutesLeft, secondsLeft))
         
         task.wait(1) 
     end
 
-    updateStatus("Hết giờ! Tìm server...") -- Sẽ hiển thị lớn
+    updateStatus("Hết giờ! Tìm server...") 
     searchForServer()
 end
 
@@ -318,21 +311,17 @@ local lastRaisedValue = raisedValueObject.Value
 
 raisedValueObject.Changed:Connect(function(newRaisedAmount)
     if newRaisedAmount > lastRaisedValue then
-        updateStatus(string.format("Donate! Raised: %d -> %d", lastRaisedValue, newRaisedAmount)) -- Sẽ hiển thị lớn
+        updateStatus(string.format("Donate! Raised: %d -> %d", lastRaisedValue, newRaisedAmount)) 
         lastRaisedValue = newRaisedAmount
         
         countdownShouldReset = true  
         
         print("[ServerHop] Cờ reset đã được đặt do có donate.")
-        -- Vòng lặp trong performCountdownThenSearch sẽ tự xử lý việc reset.
-        -- Nếu muốn "ép" reset ngay lập tức và bắt đầu lại countdown mới thay vì chờ vòng lặp hiện tại,
-        -- bạn có thể gọi startInitialCountdown() ở đây, nhưng cần cẩn thận với việc hủy coroutine cũ.
-        -- startInitialCountdown() -- Cân nhắc nếu muốn reset ngay lập tức
     end
 end)
 
 -- --- Khởi chạy Script ---
-updateStatus("Script ServerHop Khởi Động!") -- Sẽ hiển thị lớn
-task.wait(3) -- Giảm thời gian chờ ban đầu một chút
+updateStatus("Script ServerHop Khởi Động!") 
+task.wait(3) 
 print("[ServerHop] Thời gian chờ mặc định trước khi tìm server: " .. DEFAULT_WAIT_MINUTES .. " phút.")
 startInitialCountdown()
