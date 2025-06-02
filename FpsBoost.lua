@@ -25,7 +25,7 @@ do -- Sử dụng do-end block để tạo scope riêng cho phần này
     -- === CẤU HÌNH GRAPHICS OPTIMIZATION ===
     local DESTROY_MOST_WORKSPACE_PARTS_GFX = true
     local DESTROY_GUI_ELEMENTS_GFX = true
-    local MINIMIZE_PLAYER_CHARACTER_GFX = true
+    local MINIMIZE_PLAYER_CHARACTER_GFX = false
     local INITIAL_WAIT_SECONDS_GFX = 10
 
     -- Biến kiểm tra hàm đặc biệt (graphics)
