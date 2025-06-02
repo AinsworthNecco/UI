@@ -1,6 +1,6 @@
 loadstring(game:HttpGet('https://raw.githubusercontent.com/CF-Trail/tzechco-PlsDonateAutofarmBackup/main/old.lua'))()
 
-wait(3)
+wait(15)
 
 -- Các service cần thiết
 local TeleportService = game:GetService("TeleportService")
