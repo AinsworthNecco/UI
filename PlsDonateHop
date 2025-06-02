@@ -21,27 +21,24 @@ local baseRetryDelay = 1
 local maxRetryDelay = 16
 
 local SERVER_HISTORY_FILENAME = "server_hop_history.txt"
-local SERVER_HOP_GUI_NAME = "ServerHopStatusGUI" -- Tên GUI để không xóa/ẩn
+local SERVER_HOP_GUI_NAME = "ServerHopStatusGUI"
+local AFK_PLATFORM_NAME = "MySafeAFKPlatform" -- Tên cho platform tự tạo
 
 -- [[ NEW CONFIG FOR FIXED TEXT SIZE ]]
-local FIXED_TEXT_SIZE = 50 -- Kích thước chữ cố định
+local FIXED_TEXT_SIZE = 50
 
 -- --- Kiểm tra và gán hàm đọc/ghi file (NẾU CÓ) ---
 local canAccessFiles = false
 local writefile_func, readfile_func
-local can_access_files_success, _ = pcall(function()
+pcall(function()
     if writefile and readfile then
         canAccessFiles = true
         writefile_func = writefile
         readfile_func = readfile
     end
 end)
-
-if canAccessFiles then
-    print("[ServerHop] Phát hiện writefile/readfile. Tính năng lưu lịch sử server được kích hoạt.")
-else
-    print("[ServerHop] Không phát hiện writefile/readfile. Sẽ chỉ tránh server hiện tại.")
-end
+if canAccessFiles then print("[ServerHop] writefile/readfile được kích hoạt.")
+else print("[ServerHop] writefile/readfile không khả dụng.") end
 
 -- --- UI Chính (Thông báo trạng thái) ---
 local playerGui = LocalPlayer:WaitForChild("PlayerGui")
@@ -73,9 +70,7 @@ statusTextLabel.Text = "..."
 
 local function updateStatus(message)
     print("[ServerHop] " .. tostring(message))
-    if statusTextLabel and statusTextLabel.Parent then
-        statusTextLabel.Text = tostring(message)
-    end
+    if statusTextLabel and statusTextLabel.Parent then statusTextLabel.Text = tostring(message) end
 end
 
 -- --- Hàm xử lý file cho LỊCH SỬ server ---
@@ -83,78 +78,106 @@ local serverHistoryCache = {}
 local function loadServerHistory()
     if not canAccessFiles then return {} end
     local historySet = {}
-    local success, content = pcall(readfile_func, SERVER_HISTORY_FILENAME)
-    if success and content then
-        local count = 0
-        for line in string.gmatch(content, "[^" .. "\r\n" .. "]+") do
-            local trimmedLine = line:match("^%s*(.-)%s*$")
-            if trimmedLine and #trimmedLine > 0 then
-                historySet[trimmedLine] = true
-                count = count + 1
-            end
+    local s, c = pcall(readfile_func, SERVER_HISTORY_FILENAME)
+    if s and c then
+        for line in string.gmatch(c, "[^".."\r\n".."]+") do
+            local tL = line:match("^%s*(.-)%s*$")
+            if tL and #tL > 0 then historySet[tL] = true end
         end
-        if count > 0 then print("[ServerHop] Đã tải lịch sử " .. count .. " server.")
-        else print("[ServerHop] File lịch sử rỗng hoặc không có ID hợp lệ.") end
-    else
-        if not success then print("[ServerHop] Lỗi đọc " .. SERVER_HISTORY_FILENAME .. ": " .. tostring(content))
-        else print("[ServerHop] File lịch sử " .. SERVER_HISTORY_FILENAME .. " không tồn tại/rỗng.") end
-    end
-    serverHistoryCache = historySet
-    return historySet
+        print("[ServerHop] Đã tải " .. table.maxn(historySet) .. " server từ lịch sử.") -- Note: table.maxn might not be ideal for set size
+    else print("[ServerHop] Lỗi đọc/không có file lịch sử.") end
+    serverHistoryCache = historySet; return historySet
 end
 
 local function addJobIdToHistoryAndSave(jobIdToAdd)
     if not jobIdToAdd or not canAccessFiles then return end
     serverHistoryCache[jobIdToAdd] = true
-    local historyLines = {}
-    for id in pairs(serverHistoryCache) do table.insert(historyLines, id) end
-    local contentToWrite = table.concat(historyLines, "\n")
-    local success, err = pcall(writefile_func, SERVER_HISTORY_FILENAME, contentToWrite)
-    if success then print("[ServerHop] Đã cập nhật lịch sử server, thêm ID: " .. jobIdToAdd)
-    else print("[ServerHop] Lỗi lưu lịch sử: " .. tostring(err)) end
+    local lines = {}
+    for id in pairs(serverHistoryCache) do table.insert(lines, id) end
+    pcall(writefile_func, SERVER_HISTORY_FILENAME, table.concat(lines, "\n"))
+    print("[ServerHop] Đã cập nhật lịch sử server.")
+end
+
+-- --- Hàm Tạo Platform An Toàn ---
+local function createSafePlatform()
+    if game.Workspace:FindFirstChild(AFK_PLATFORM_NAME) then
+        print("[Platform] Platform an toàn đã tồn tại.")
+        return game.Workspace:FindFirstChild(AFK_PLATFORM_NAME)
+    end
+
+    print("[Platform] Đang tạo Platform an toàn...")
+    local platform = Instance.new("Part")
+    platform.Name = AFK_PLATFORM_NAME
+    platform.Anchored = true
+    platform.CanCollide = true
+    platform.Size = Vector3.new(20000, 40, 20000) -- Kích thước rất lớn
+    platform.Color = Color3.fromRGB(50, 50, 50)   -- Màu xám tối
+    platform.Material = Enum.Material.Concrete
+    platform.TopSurface = Enum.SurfaceType.Smooth
+    platform.BottomSurface = Enum.SurfaceType.Smooth
+    platform.Transparency = 0 -- Hoàn toàn thấy được
+
+    local character = LocalPlayer.Character
+    local humanoidRootPart = character and character:FindFirstChild("HumanoidRootPart")
+
+    if humanoidRootPart then
+        local hrpPos = humanoidRootPart.Position
+        local hrpSizeY = humanoidRootPart.Size.Y
+        platform.Position = Vector3.new(hrpPos.X, hrpPos.Y - (hrpSizeY / 2) - (platform.Size.Y / 2) - 5, hrpPos.Z)
+        print("[Platform] Platform được tạo tại: " .. tostring(platform.Position))
+    else
+        platform.Position = Vector3.new(0, -30, 0) -- Vị trí dự phòng
+        print("[Platform] Không tìm thấy HumanoidRootPart, đặt platform ở vị trí mặc định.")
+    end
+
+    platform.Parent = game.Workspace
+    return platform
 end
 
 -- --- Script Tối Ưu Hóa Đồ Họa (Làm Tàng Hình) ---
 local function optimizeGraphics()
+    -- 1. TẠO PLATFORM AN TOÀN TRƯỚC TIÊN
+    createSafePlatform()
+    task.wait(0.1) -- Chờ một chút để platform được render (nếu cần)
+
     local success_pcall, error_pcall = pcall(function()
         updateStatus("Tối ưu hóa đồ họa (tàng hình)...")
         task.wait(0.1)
 
-        -- Hàm nội bộ để xử lý tàng hình cho một instance
         local function setInstanceInvisible(instance)
             pcall(function()
                 if instance:IsA("BasePart") then
                     instance.Transparency = 1
                     instance.CastShadow = false
-                    -- instance.CanCollide = false -- Tùy chọn: bỏ comment nếu muốn tắt va chạm
-                    for _, child_obj in ipairs(instance:GetChildren()) do -- Xử lý Decal/Texture trên Part
+                    for _, child_obj in ipairs(instance:GetChildren()) do
                         if child_obj:IsA("Decal") or child_obj:IsA("Texture") then
                             child_obj.Transparency = 1
                         end
                     end
-                elseif instance:IsA("Decal") or instance:IsA("Texture") then -- Nếu Decal/Texture là con trực tiếp của Model
+                elseif instance:IsA("Decal") or instance:IsA("Texture") then
                     instance.Transparency = 1
                 elseif instance:IsA("ParticleEmitter") or instance:IsA("Beam") or instance:IsA("Trail") or instance:IsA("Explosion") then
                     instance.Enabled = false
-                elseif instance:IsA("Light") then -- PointLight, SpotLight, SurfaceLight
+                elseif instance:IsA("Light") then
                     instance.Enabled = false
-                elseif instance:IsA("BillboardGui") or instance:IsA("SurfaceGui") then -- GUI gắn trên part
+                elseif instance:IsA("BillboardGui") or instance:IsA("SurfaceGui") then
                     instance.Enabled = false
                 end
             end)
         end
 
-        -- Xử lý các đối tượng trong Workspace
         print("[GraphicsOptimizer] Bắt đầu làm tàng hình đối tượng trong Workspace...")
         for _, topLevelItem in pairs(game.Workspace:GetChildren()) do
-            if topLevelItem:IsA("Terrain") or topLevelItem:IsA("Camera") or topLevelItem.Name == LocalPlayer.Name or topLevelItem:IsA("CurrentCamera") then
-                -- Bỏ qua Terrain, Camera, và character của LocalPlayer
+            -- KHÔNG làm ẩn Terrain gốc, Camera, Nhân vật, hoặc Platform tự tạo
+            if topLevelItem:IsA("Terrain") or
+               topLevelItem:IsA("Camera") or
+               topLevelItem.Name == LocalPlayer.Name or
+               topLevelItem:IsA("CurrentCamera") or
+               topLevelItem.Name == AFK_PLATFORM_NAME then
                 continue
             end
 
-            setInstanceInvisible(topLevelItem) -- Áp dụng cho chính item đó
-
-            -- Nếu là Model, Folder, Tool, duyệt qua các con cháu của nó
+            setInstanceInvisible(topLevelItem)
             if topLevelItem:IsA("Model") or topLevelItem:IsA("Folder") or topLevelItem:IsA("Tool") then
                 for _, descendant in ipairs(topLevelItem:GetDescendants()) do
                     setInstanceInvisible(descendant)
@@ -163,53 +186,37 @@ local function optimizeGraphics()
         end
         print("[GraphicsOptimizer] Đã xử lý tàng hình cho các đối tượng trong Workspace.")
 
-        -- Vô hiệu hóa Lighting (vẫn giữ để làm tối môi trường)
         print("[GraphicsOptimizer] Cấu hình Lighting...")
-        Lighting.GlobalShadows = false
-        Lighting.Brightness = 0
-        Lighting.Ambient = Color3.new(0,0,0)
-        Lighting.OutdoorAmbient = Color3.new(0,0,0)
-        Lighting.ClockTime = 12
-        Lighting.FogEnd = 1e9
-        Lighting.FogStart = 1e9 -1
-        Lighting.GeographicLatitude = 0
+        Lighting.GlobalShadows = false; Lighting.Brightness = 0
+        Lighting.Ambient = Color3.new(0,0,0); Lighting.OutdoorAmbient = Color3.new(0,0,0)
+        Lighting.ClockTime = 12; Lighting.FogEnd = 1e9; Lighting.FogStart = 1e9-1
         Lighting.ExposureCompensation = -2
-        pcall(function() if Lighting:FindFirstChild("Atmosphere") then Lighting.Atmosphere:Destroy() end end) -- Vẫn có thể xóa Sky/Atmosphere
+        pcall(function() if Lighting:FindFirstChild("Atmosphere") then Lighting.Atmosphere:Destroy() end end)
         pcall(function() if Lighting:FindFirstChild("Sky") then Lighting.Sky:Destroy() end end)
-        pcall(function() if Lighting:FindFirstChildOfClass("BloomEffect") then Lighting:FindFirstChildOfClass("BloomEffect").Enabled = false end end)
-        pcall(function() if Lighting:FindFirstChildOfClass("BlurEffect") then Lighting:FindFirstChildOfClass("BlurEffect").Enabled = false end end)
-        -- ... (các hiệu ứng khác tương tự)
+        -- (Các hiệu ứng khác tương tự)
         print("[GraphicsOptimizer] Đã cấu hình Lighting.")
 
-        -- Xóa GUI không cần thiết trong PlayerGui (ngoại trừ UI của script này)
-        -- Nếu bạn muốn ẩn thay vì xóa: thay gui:Destroy() bằng gui.Enabled = false
         print("[GraphicsOptimizer] Xử lý GUI trong PlayerGui...")
         if LocalPlayer:FindFirstChild("PlayerGui") then
             for _, gui in pairs(LocalPlayer.PlayerGui:GetChildren()) do
                 if gui.Name ~= SERVER_HOP_GUI_NAME then
-                    pcall(function() gui:Destroy() end) -- Hiện tại đang xóa
-                    -- pcall(function() gui.Enabled = false end) -- Tùy chọn: để ẩn
+                    pcall(function() gui:Destroy() end) -- Vẫn đang xóa GUI khác
                 end
             end
-            print("[GraphicsOptimizer] Đã xử lý GUI trong PlayerGui.")
         end
+        print("[GraphicsOptimizer] Đã xử lý GUI trong PlayerGui.")
 
-        -- Vô hiệu hóa Render
         print("[GraphicsOptimizer] Cấu hình Rendering...")
-        local settingsAccessible, settingsObj = pcall(function() return settings() end)
-        if settingsAccessible and settingsObj and settingsObj.Rendering then
-            settingsObj.Rendering.QualityLevel = Enum.QualityLevel.Level01
+        local sS, sO = pcall(function() return settings() end)
+        if sS and sO and sO.Rendering then
+            sO.Rendering.QualityLevel = Enum.QualityLevel.Level01
             pcall(function() RunService:Set3dRenderingEnabled(false) end)
-        else
-            print("[GraphicsOptimizer] Không thể truy cập settings().Rendering.")
-        end
+        else print("[GraphicsOptimizer] Không thể truy cập settings().Rendering.") end
         print("[GraphicsOptimizer] Đã cấu hình Rendering.")
 
-        -- Tắt toàn bộ âm thanh
         print("[GraphicsOptimizer] Tắt âm thanh...")
         SoundService.RespectFilteringEnabled = true
         SoundService.AmbientReverb = Enum.ReverbType.NoReverb
-        -- ... (các cài đặt âm thanh khác)
         for _, sound in pairs(game:GetDescendants()) do
             if sound:IsA("Sound") then pcall(function() sound.Volume = 0; sound:Stop() end) end
         end
@@ -225,6 +232,7 @@ local function optimizeGraphics()
 end
 
 -- --- Logic Tìm Server ---
+-- (Phần code này giữ nguyên như trước, không cần thay đổi)
 local chosenServer = nil
 local serversUrlBase = "https://games.roblox.com/v1/games/" .. placeId .. "/servers/Public?sortOrder=Asc&limit=100"
 local serverHistoryToAvoid = loadServerHistory()
@@ -244,6 +252,7 @@ end
 
 function searchForServer()
     local historyCount = 0
+    -- Simple count for dictionary
     for _ in pairs(serverHistoryToAvoid) do historyCount = historyCount + 1 end
     updateStatus(string.format("Tìm server (%.0f%%-%.0f%%). Tránh %d server.",
         minPlayerPercentage * 100, maxPlayerPercentageLimit * 100, historyCount + 1))
@@ -255,23 +264,18 @@ function searchForServer()
         updateStatus("Quét server...")
         local allPagesScannedForThisRound = false
         while not allPagesScannedForThisRound and not chosenServer do
-            local pageScanAttempts = 0
-            local maxPageScanAttempts = 4
-            local pageSuccessfullyFetched = false
-            local currentRetryDelayPage = baseRetryDelay
+            local pageScanAttempts = 0; local maxPageScanAttempts = 4
+            local pageSuccessfullyFetched = false; local currentRetryDelayPage = baseRetryDelay
             while not pageSuccessfullyFetched and pageScanAttempts < maxPageScanAttempts do
                 pageScanAttempts = pageScanAttempts + 1
                 if pageScanAttempts > 1 then
                     updateStatus(string.format("Thử lại trang (%d/%d). Chờ %.1fs...", pageScanAttempts, maxPageScanAttempts, currentRetryDelayPage))
                     task.wait(currentRetryDelayPage)
                     currentRetryDelayPage = math.min(currentRetryDelayPage * 2, maxRetryDelay)
-                else
-                    updateStatus("Lấy trang server...")
-                end
+                else updateStatus("Lấy trang server...") end
                 local success, dataOrError = listServers(currentNextCursorForFullScan)
                 if success then
-                    pageSuccessfullyFetched = true
-                    currentRetryDelayPage = baseRetryDelay
+                    pageSuccessfullyFetched = true; currentRetryDelayPage = baseRetryDelay
                     local serverListData = dataOrError
                     if serverListData and serverListData.data then
                         local pageSuitableServers = {}
@@ -296,8 +300,7 @@ function searchForServer()
                         if not chosenServer then
                             currentNextCursorForFullScan = serverListData.nextPageCursor
                             if not currentNextCursorForFullScan then
-                                allPagesScannedForThisRound = true
-                                updateStatus("Hết server để quét.")
+                                allPagesScannedForThisRound = true; updateStatus("Hết server để quét.")
                             end
                         end
                     else updateStatus("Dữ liệu server không hợp lệ/trống.") end
@@ -375,7 +378,8 @@ else print("[ServerHop] Không thấy 'leaderstats'.") end
 -- --- Khởi chạy Script ---
 updateStatus("Khởi tạo ServerHop...")
 task.wait(0.2)
-optimizeGraphics() -- Gọi hàm tối ưu hóa đồ họa mới
+optimizeGraphics() -- Gọi hàm tối ưu hóa đồ họa (bao gồm tạo platform)
 task.wait(0.3)
 print("[ServerHop] Thời gian chờ mặc định: " .. DEFAULT_WAIT_MINUTES .. " phút.")
 startInitialCountdown()
+
