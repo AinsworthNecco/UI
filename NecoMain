@@ -1,4 +1,4 @@
-local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
+local Rayfield = loadstring(game:HttpGet('https://raw.githubusercontent.com/AinsworthNecco/Lychkin/refs/heads/main/MainUI'))()
 
 -- Tạo giao diện chính
 local Window = Rayfield:CreateWindow({
