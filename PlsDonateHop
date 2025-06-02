@@ -20,10 +20,9 @@ local waitTimeBetweenPageFetches = 0.75
 local baseRetryDelay = 1
 local maxRetryDelay = 16
 
-local PLATFORM_VERTICAL_OFFSET = 0 -- <<<<<<<<<<<<<<< BIẾN CẤU HÌNH MỚI <<<<<<<<<<<<<<<
--- Giá trị mặc định là 0.
--- Tăng giá trị này (ví dụ: 5, 10, 20) để đặt platform thấp hơn nữa so với vị trí chân nhân vật.
--- Bạn sẽ thử nghiệm giá trị này để tìm ra độ cao phù hợp.
+local PLATFORM_VERTICAL_OFFSET = 0 -- Tăng giá trị này để platform thấp hơn.
+-- Ví dụ: 0 = mặt trên platform ở vị trí chân (đã tính HipHeight)
+--        5 = mặt trên platform thấp hơn vị trí chân 5 studs
 
 local SERVER_HISTORY_FILENAME = "server_hop_history.txt"
 local SERVER_HOP_GUI_NAME = "ServerHopStatusGUI"
@@ -79,6 +78,38 @@ local function updateStatus(message)
     if statusTextLabel and statusTextLabel.Parent then statusTextLabel.Text = tostring(message) end
 end
 
+-- --- Hàm Tắt AutoRotate cho Nhân vật ---
+local function disableCharacterAutoRotate(character)
+    if not character then
+        print("[CharControl] disableCharacterAutoRotate: Nhân vật không tồn tại để xử lý.")
+        return
+    end
+    
+    local humanoid = character:FindFirstChildOfClass("Humanoid")
+    if humanoid then
+        if humanoid.AutoRotate == true then
+            humanoid.AutoRotate = false
+            print("[CharControl] Đã tắt AutoRotate cho nhân vật: " .. character.Name)
+        else
+            print("[CharControl] AutoRotate của nhân vật '" .. character.Name .. "' đã được tắt từ trước.")
+        end
+    else
+        print("[CharControl] Nhân vật '" .. character.Name .. "' chưa có Humanoid, đang đợi...")
+        task.wait(0.5) 
+        humanoid = character:FindFirstChildOfClass("Humanoid")
+        if humanoid then
+            if humanoid.AutoRotate == true then
+                humanoid.AutoRotate = false
+                print("[CharControl] Đã tắt AutoRotate cho nhân vật '" .. character.Name .. "' (sau khi đợi).")
+            else
+                print("[CharControl] AutoRotate của nhân vật '" .. character.Name .. "' đã được tắt từ trước (sau khi đợi).")
+            end
+        else
+            print("[CharControl] Vẫn không tìm thấy Humanoid trong nhân vật '" .. character.Name .. "' để tắt AutoRotate.")
+        end
+    end
+end
+
 -- --- Hàm xử lý file cho LỊCH SỬ server ---
 local serverHistoryCache = {}
 local function loadServerHistory()
@@ -111,7 +142,7 @@ local function addJobIdToHistoryAndSave(jobIdToAdd)
     print("[FileIO] addJobIdToHistoryAndSave() KẾT THÚC.")
 end
 
--- --- Hàm Tạo Platform An Toàn (Sử dụng PLATFORM_VERTICAL_OFFSET) ---
+-- --- Hàm Tạo Platform An Toàn ---
 local function createSafePlatform()
     print("[Platform] createSafePlatform() BẮT ĐẦU.")
     updateStatus("Đang tạo platform an toàn...")
@@ -143,15 +174,8 @@ local function createSafePlatform()
         local hrpPos = humanoidRootPart.Position
         local hrpSizeY = humanoidRootPart.Size.Y
         local hipHeight = humanoid.HipHeight
-
-        -- Tính toán vị trí Y mà chân nhân vật (đã điều chỉnh HipHeight) sẽ "chạm" vào một mặt đất lý tưởng
         local feetContactIdealY = hrpPos.Y - (hrpSizeY / 2) - hipHeight
-        
-        -- Áp dụng offset tùy chỉnh từ người dùng
-        -- Giá trị PLATFORM_VERTICAL_OFFSET càng lớn, platform càng được đặt thấp hơn
         local platformTopTargetY = feetContactIdealY - PLATFORM_VERTICAL_OFFSET
-        
-        -- Tính vị trí tâm của platform để mặt trên của nó ở vị trí platformTopTargetY
         local platformCenterY = platformTopTargetY - (platform.Size.Y / 2)
         
         platform.Position = Vector3.new(hrpPos.X, platformCenterY, hrpPos.Z)
@@ -159,7 +183,7 @@ local function createSafePlatform()
             platformCenterY, platformTopTargetY, feetContactIdealY, PLATFORM_VERTICAL_OFFSET))
     else
         print("[Platform] KHÔNG tìm thấy HumanoidRootPart/Humanoid. Đặt platform ở vị trí mặc định.")
-        platform.Position = Vector3.new(0, -30 - PLATFORM_VERTICAL_OFFSET, 0) -- Áp dụng offset cả cho vị trí mặc định
+        platform.Position = Vector3.new(0, -30 - PLATFORM_VERTICAL_OFFSET, 0)
         if not character then print("[Platform] Lý do: LocalPlayer.Character is nil")
         elseif not humanoid then print("[Platform] Lý do: Character không có Humanoid")
         elseif not humanoidRootPart then print("[Platform] Lý do: Character không có HumanoidRootPart") end
@@ -420,6 +444,44 @@ local function startInitialCountdown()
     print("[Countdown] Coroutine đếm ngược đã resume. Trạng thái: " .. coroutine.status(currentCountdownThread))
 end
 
+-- --- Khởi chạy Script ---
+print("[MainInit] Script BẮT ĐẦU KHỞI CHẠY.")
+updateStatus("Khởi tạo ServerHop...")
+
+if LocalPlayer then
+    LocalPlayer.CharacterAdded:Connect(function(character)
+        print("[CharControl] Sự kiện CharacterAdded: Nhân vật mới được thêm/hồi sinh.")
+        disableCharacterAutoRotate(character)
+    end)
+else
+    print("[MainInit] CẢNH BÁO: LocalPlayer is nil khi cố gắng kết nối CharacterAdded.")
+end
+
+task.wait(0.2)
+
+updateStatus("Chờ 15 giây cho game tải hoàn chỉnh...") -- <<<<<<<<<< THAY ĐỔI ĐỘ TRỄ
+print(string.format("[MainInit] Sẽ bắt đầu tối ưu hóa đồ họa sau 15 giây. Thời gian hiện tại (ước tính): %s", os.date and os.date("%X") or "không rõ")) -- <<<<<<<<<< THAY ĐỔI ĐỘ TRỄ
+task.wait(15) -- <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< ĐỘ TRỄ 15 GIÂY
+print(string.format("[MainInit] ĐÃ HẾT 15 GIÂY CHỜ. Thời gian hiện tại (ước tính): %s", os.date and os.date("%X") or "không rõ")) -- <<<<<<<<<< THAY ĐỔI ĐỘ TRỄ
+updateStatus("Hết 15s chờ. Bắt đầu tối ưu...") -- <<<<<<<<<< THAY ĐỔI ĐỘ TRỄ
+
+if LocalPlayer.Character then
+    print("[MainInit] Thực hiện tắt AutoRotate lần đầu cho nhân vật hiện tại.")
+    disableCharacterAutoRotate(LocalPlayer.Character)
+else
+    print("[MainInit] Nhân vật chưa tải xong sau 15s để tắt AutoRotate lần đầu (CharacterAdded sẽ xử lý nếu nhân vật xuất hiện sau).")
+end
+
+optimizeGraphics()
+print("[MainInit] optimizeGraphics() ĐÃ GỌI XONG.")
+updateStatus("Tối ưu xong. Chuẩn bị đếm ngược...")
+task.wait(0.3)
+
+print(string.format("[MainInit] Chuẩn bị gọi startInitialCountdown(). Thời gian chờ mặc định: %d phút.", DEFAULT_WAIT_MINUTES))
+startInitialCountdown()
+print("[MainInit] startInitialCountdown() ĐÃ GỌI XONG.")
+print("[MainInit] Script đã hoàn tất phần khởi chạy chính. Các tiến trình nền (đếm ngược, tìm server) sẽ tiếp tục.")
+
 local lsSuccess, ls = pcall(function() print("[Donate] Đang WaitForChild leaderstats..."); return LocalPlayer:WaitForChild("leaderstats",15) end)
 if lsSuccess and ls then
     print("[Donate] Tìm thấy leaderstats.")
@@ -436,24 +498,3 @@ if lsSuccess and ls then
         end)
     else print("[Donate] Không thấy 'Raised' trong leaderstats. Lỗi: " .. tostring(rvObj)) end
 else print("[Donate] Không thấy 'leaderstats'. Lỗi: " .. tostring(ls)) end
-
--- --- Khởi chạy Script ---
-print("[MainInit] Script BẮT ĐẦU KHỞI CHẠY.")
-updateStatus("Khởi tạo ServerHop...")
-task.wait(0.2)
-
-updateStatus("Chờ 10 giây cho game tải hoàn chỉnh...")
-print(string.format("[MainInit] Sẽ bắt đầu tối ưu hóa đồ họa sau 10 giây. Thời gian hiện tại (ước tính): %s", os.date and os.date("%X") or "không rõ"))
-task.wait(10)
-print(string.format("[MainInit] ĐÃ HẾT 10 GIÂY CHỜ. Thời gian hiện tại (ước tính): %s", os.date and os.date("%X") or "không rõ"))
-updateStatus("Hết 10s chờ. Bắt đầu tối ưu...")
-
-optimizeGraphics()
-print("[MainInit] optimizeGraphics() ĐÃ GỌI XONG.")
-updateStatus("Tối ưu xong. Chuẩn bị đếm ngược...")
-task.wait(0.3)
-
-print(string.format("[MainInit] Chuẩn bị gọi startInitialCountdown(). Thời gian chờ mặc định: %d phút.", DEFAULT_WAIT_MINUTES))
-startInitialCountdown()
-print("[MainInit] startInitialCountdown() ĐÃ GỌI XONG.")
-print("[MainInit] Script đã hoàn tất phần khởi chạy chính. Các tiến trình nền (đếm ngược, tìm server) sẽ tiếp tục.")
