@@ -1,9 +1,10 @@
--- Script Tổng Tối Ưu Hóa Cực Đoan cho AFK (Cập nhật)
+-- Script Tổng Tối Ưu Hóa Cực Đoan cho AFK (Cập nhật với độ trễ 10 giây)
 
 -- === CẤU HÌNH CHUNG ===
 local DESTROY_MOST_WORKSPACE_PARTS = true -- !!! RẤT MẠNH TAY !!! Phá hủy hầu hết parts (trừ nhân vật).
 local DESTROY_GUI_ELEMENTS = true       -- Phá hủy tất cả GUI.
 local MINIMIZE_PLAYER_CHARACTER = true  -- Làm nhân vật gần như vô hình và bất động.
+local INITIAL_WAIT_SECONDS = 10         -- THỜI GIAN CHỜ TRƯỚC KHI TỐI ƯU HÓA (GIÂY)
 -- === KẾT THÚC CẤU HÌNH ===
 
 -- Biến kiểm tra hàm đặc biệt (thường có trong môi trường exploit)
@@ -25,11 +26,26 @@ local player = Players.LocalPlayer
 local hasRunOptimizations = false
 
 local function runExtremeOptimization()
+    -- Kiểm tra xem tối ưu hóa đã chạy chưa (quan trọng để chỉ chạy 1 lần)
     if hasRunOptimizations and not RunService:IsStudio() then
+        -- print("LOCAL SCRIPT: Extreme optimization already run.")
         return
     end
+
+    -- THÊM KHOẢNG CHỜ 10 GIÂY VÀO ĐÂY
+    print("LOCAL SCRIPT: Initializing optimization. Waiting for " .. INITIAL_WAIT_SECONDS .. " seconds before applying changes...")
+    task.wait(INITIAL_WAIT_SECONDS)
+    -- KẾT THÚC KHOẢNG CHỜ
+
+    -- Kiểm tra lại sau khi chờ, phòng trường hợp hy hữu (thường không cần thiết với cấu trúc hiện tại)
+    if hasRunOptimizations and not RunService:IsStudio() then
+        print("LOCAL SCRIPT: Optimization seems to have run during the delay. Aborting duplicate run.")
+        return
+    end
+
+    -- Đặt cờ báo đã chạy để không chạy lại
     hasRunOptimizations = true
-    print("LOCAL SCRIPT: Attempting UPDATED EXTREME local optimization for AFK...")
+    print("LOCAL SCRIPT: " .. INITIAL_WAIT_SECONDS .. " second wait complete. Attempting UPDATED EXTREME local optimization for AFK...")
 
     -- 1. Cài đặt Render Settings Cốt Lõi (NẾU `settings()` và `UserSettings()` hoạt động)
     if settings_func and userSettings_func then
@@ -50,9 +66,9 @@ local function runExtremeOptimization()
 
     -- 2. Workspace - Cài đặt chung
     pcall(function()
-        workspace.LevelOfDetail = Enum.ModelLevelOfDetail.Disabled -- MỚI: Giảm chi tiết model
+        workspace.LevelOfDetail = Enum.ModelLevelOfDetail.Disabled
         if sethiddenproperty then
-            pcall(sethiddenproperty, workspace, "MeshPartHeads", Enum.MeshPartHeads.Disabled) -- MỚI: Tắt render đặc biệt cho đầu MeshPart
+            pcall(sethiddenproperty, workspace, "MeshPartHeads", Enum.MeshPartHeads.Disabled)
             print("LOCAL SCRIPT: Attempted to set MeshPartHeads via sethiddenproperty.")
         end
     end)
@@ -81,11 +97,11 @@ local function runExtremeOptimization()
         local atmosphere = Lighting:FindFirstChildOfClass("Atmosphere")
         if atmosphere then Debris:AddItem(atmosphere, 0) end
 
-        local sky = Lighting:FindFirstChildOfClass("Sky") -- Xử lý Sky ở vòng lặp dưới, nhưng nếu có sky trực tiếp trong Lighting thì xóa
+        local sky = Lighting:FindFirstChildOfClass("Sky")
         if sky and sky.Parent == Lighting then Debris:AddItem(sky, 0) end
     end)
 
-    -- 4. Âm thanh Tắt Hoàn Toàn (Giữ nguyên từ script tổng trước)
+    -- 4. Âm thanh Tắt Hoàn Toàn
     pcall(function()
         SoundService.AmbientReverb = Enum.ReverbType.NoReverb
         local soundsToProcess = {}
@@ -106,31 +122,23 @@ local function runExtremeOptimization()
     local terrain = Workspace:FindFirstChildOfClass("Terrain")
     if terrain then
         pcall(function()
-            terrain.WaterWaveSize = 0
-            terrain.WaterWaveSpeed = 0
-            terrain.WaterReflectance = 0 -- MỚI
-            terrain.WaterTransparency = 1 -- Giữ trong suốt để AFK
-            
+            terrain.WaterWaveSize = 0; terrain.WaterWaveSpeed = 0; terrain.WaterReflectance = 0; terrain.WaterTransparency = 1
             if sethiddenproperty then
                 pcall(sethiddenproperty, terrain, "Decoration", false)
                 print("LOCAL SCRIPT: Attempted to set Terrain.Decoration via sethiddenproperty.")
             else
                 terrain.Decoration = false
             end
-            -- Cân nhắc phá hủy terrain hoặc làm nó hoàn toàn trong suốt nếu mục tiêu là tuyệt đối
-            -- Debris:AddItem(terrain, 5) -- Xóa terrain sau 5s
-            -- Hoặc: terrain.Transparency = 1
         end)
     end
 
     -- 7. Workspace: Cuộc Đại Thanh Trừng (hoặc Tối Giản Hóa)
     local playerCharacter = player.Character
-    local itemsToProcess = Workspace:GetDescendants() -- Lấy danh sách một lần
+    local itemsToProcess = Workspace:GetDescendants()
 
-    for _, descendant in ipairs(itemsToProcess) do
-        if not descendant or not descendant.Parent then continue end -- Bỏ qua nếu đã bị xóa
+    for i, descendant in ipairs(itemsToProcess) do
+        if not descendant or not descendant.Parent then continue end
 
-        -- Xử lý Nhân vật Người chơi
         if descendant == playerCharacter or (playerCharacter and descendant:IsDescendantOf(playerCharacter)) then
             if MINIMIZE_PLAYER_CHARACTER and playerCharacter then
                 pcall(function()
@@ -144,49 +152,32 @@ local function runExtremeOptimization()
                         for _, track in ipairs(humanoid:GetPlayingAnimationTracks()) do track:Stop(0.01); Debris:AddItem(track, 0.1) end
                     end
                     for _, charPart in ipairs(playerCharacter:GetDescendants()) do
-                        if charPart:IsA("BasePart") then charPart.Transparency = 1; charPart.CanCollide = false; charPart.CastShadow = false; charPart.Anchored = true; charPart.Material = Enum.Material.Plastic end -- MỚI: đổi material nhân vật luôn
+                        if charPart:IsA("BasePart") then charPart.Transparency = 1; charPart.CanCollide = false; charPart.CastShadow = false; charPart.Anchored = true; charPart.Material = Enum.Material.Plastic end
                         if charPart:IsA("Decal") or charPart:IsA("Texture") then charPart.Transparency = 1 end
                         if charPart:IsA("Accessory") then Debris:AddItem(charPart, 0) end
                     end
                 end)
             end
-        -- Xử lý các đối tượng khác
         elseif descendant ~= Workspace.CurrentCamera and not descendant:IsA("Terrain") and not descendant:IsA("Script") and not descendant:IsA("LocalScript") and not descendant:IsA("Configuration") then
             local processed = false
-            -- Các loại đối tượng cần xử lý đặc biệt trước khi quyết định phá hủy chung
-            if descendant:IsA("Sky") then
-                pcall(function() descendant.StarCount = 0; descendant.CelestialBodiesShown = false; Debris:AddItem(descendant,0.1) end) -- Xóa sky luôn
-                processed = true
-            elseif descendant:IsA("Atmosphere") then -- Đã xử lý ở Lighting, nhưng nếu có thêm thì xóa
-                pcall(function() Debris:AddItem(descendant, 0) end)
-                processed = true
-            elseif descendant:IsA("SurfaceAppearance") then -- MỚI: Xóa SurfaceAppearance
-                pcall(function() Debris:AddItem(descendant, 0) end)
-                processed = true
-            elseif (descendant:IsA("ParticleEmitter") or descendant:IsA("Sparkles") or descendant:IsA("Smoke") or descendant:IsA("Trail") or descendant:IsA("Fire")) then
-                pcall(function() descendant.Enabled = false; Debris:AddItem(descendant, 0.1) end)
-                processed = true
-            elseif (descendant:IsA("ColorCorrectionEffect") or descendant:IsA("DepthOfFieldEffect") or descendant:IsA("SunRaysEffect") or descendant:IsA("BloomEffect") or descendant:IsA("BlurEffect") or descendant:IsA("Light")) then
-                pcall(function() descendant.Enabled = false; Debris:AddItem(descendant, 0.1) end)
-                processed = true
+            if descendant:IsA("Sky") then pcall(function() descendant.StarCount = 0; descendant.CelestialBodiesShown = false; Debris:AddItem(descendant,0.1) end); processed = true
+            elseif descendant:IsA("Atmosphere") then pcall(function() Debris:AddItem(descendant, 0) end); processed = true
+            elseif descendant:IsA("SurfaceAppearance") then pcall(function() Debris:AddItem(descendant, 0) end); processed = true
+            elseif (descendant:IsA("ParticleEmitter") or descendant:IsA("Sparkles") or descendant:IsA("Smoke") or descendant:IsA("Trail") or descendant:IsA("Fire")) then pcall(function() descendant.Enabled = false; Debris:AddItem(descendant, 0.1) end); processed = true
+            elseif (descendant:IsA("ColorCorrectionEffect") or descendant:IsA("DepthOfFieldEffect") or descendant:IsA("SunRaysEffect") or descendant:IsA("BloomEffect") or descendant:IsA("BlurEffect") or descendant:IsA("Light")) then pcall(function() descendant.Enabled = false; Debris:AddItem(descendant, 0.1) end); processed = true
             end
 
-            if not processed then -- Nếu chưa được xử lý đặc biệt ở trên
-                if DESTROY_MOST_WORKSPACE_PARTS then
-                    Debris:AddItem(descendant, 0) -- Phá hủy
-                else -- Nếu không phá hủy, thì làm vô hình/tĩnh/đơn giản
+            if not processed then
+                if DESTROY_MOST_WORKSPACE_PARTS then Debris:AddItem(descendant, 0)
+                else
                     pcall(function()
-                        if descendant:IsA("BasePart") then
-                            descendant.Transparency = 1; descendant.CastShadow = false; descendant.CanCollide = false; descendant.Anchored = true
-                            descendant.Material = Enum.Material.Plastic -- MỚI: Đổi material
-                        elseif descendant:IsA("Decal") or descendant:IsA("Texture") then
-                            descendant.Transparency = 1
-                        end
+                        if descendant:IsA("BasePart") then descendant.Transparency = 1; descendant.CastShadow = false; descendant.CanCollide = false; descendant.Anchored = true; descendant.Material = Enum.Material.Plastic
+                        elseif descendant:IsA("Decal") or descendant:IsA("Texture") then descendant.Transparency = 1 end
                     end)
                 end
             end
         end
-        if _ % 200 == 0 then task.wait() end -- Thêm task.wait để tránh quá tải nếu workspace quá lớn
+        if i % 200 == 0 then task.wait() end
     end
 
     -- 8. Camera Tối Giản
@@ -200,18 +191,24 @@ local function runExtremeOptimization()
         end)
     end
     
-    print("LOCAL SCRIPT: UPDATED EXTREME local optimization attempt complete.")
+    print("LOCAL SCRIPT: UPDATED EXTREME local optimization (RAM & CPU Focus) attempt complete.")
 end
 
--- Chạy tối ưu hóa
+-- Khởi tạo và kết nối sự kiện để chạy tối ưu hóa
 local function initializeOptimization()
     local startTime = tick()
-    repeat task.wait() until (player and player.Character) or tick() - startTime > 7
-    if not hasRunOptimizations then runExtremeOptimization() end
+    -- Chờ nhân vật tải xong hoặc sau một khoảng thời gian chờ tối đa
+    repeat task.wait() until (player and player.Character and player.Character:FindFirstChild("Humanoid")) or tick() - startTime > 7 
+    
+    -- Chỉ gọi hàm tối ưu hóa, bên trong nó đã có logic chờ 10 giây và kiểm tra chạy 1 lần
+    runExtremeOptimization()
 end
 
 initializeOptimization()
-player.CharacterAdded:Connect(function(char) -- Chạy lại nếu nhân vật hồi sinh (dù có thể không cần thiết cho AFK)
-    task.wait(1) -- Chờ một chút
-    if not hasRunOptimizations then runExtremeOptimization() end
+
+player.CharacterAdded:Connect(function(char)
+    -- Chờ một chút để nhân vật được thiết lập hoàn chỉnh hơn
+    task.wait(1.5) 
+    -- Chỉ gọi hàm tối ưu hóa, bên trong nó đã có logic chờ 10 giây và kiểm tra chạy 1 lần
+    runExtremeOptimization() 
 end)
