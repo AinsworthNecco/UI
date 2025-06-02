@@ -76,3 +76,4 @@ for Index, Object in ipairs(game:GetDescendants()) do
 		Object.Enabled = false
 	end
 end
+
