@@ -24,16 +24,13 @@ local PLATFORM_VERTICAL_OFFSET = 0
 local SERVER_HISTORY_FILENAME = "server_hop_history.txt"
 local SERVER_HOP_GUI_NAME = "ServerHopStatusGUI"
 local AFK_PLATFORM_NAME = "MySafeAFKPlatform"
+local STATIC_HEAD_ANCHOR_PART_NAME = "AFK_HeadAnchor" -- Part neo ở đầu (tĩnh)
+local STATIC_BLACK_SCREEN_PART_NAME = "AFK_BlackScreen" -- Part đen (tĩnh)
 
 -- [[ NEW CONFIG FOR FIXED TEXT SIZE ]]
 local FIXED_TEXT_SIZE = 50
 
--- --- Biến cho việc khóa Motor6D ---
-local motorStates = {} -- Lưu trữ CFrame gốc của các Motor6D
-local motorLockConnection = nil -- Kết nối RenderStepped duy nhất
-
 -- --- Kiểm tra và gán hàm đọc/ghi file (NẾU CÓ) ---
--- (Giữ nguyên)
 local canAccessFiles = false
 local writefile_func, readfile_func
 pcall(function()
@@ -47,7 +44,6 @@ if canAccessFiles then print("[ServerHop] writefile/readfile được kích ho�
 else print("[ServerHop] writefile/readfile không khả dụng.") end
 
 -- --- UI Chính (Thông báo trạng thái) ---
--- (Giữ nguyên)
 local playerGui = LocalPlayer:WaitForChild("PlayerGui")
 local statusScreenGui = playerGui:FindFirstChild(SERVER_HOP_GUI_NAME)
 if statusScreenGui then statusScreenGui:Destroy() end
@@ -69,209 +65,172 @@ local function updateStatus(message)
     if statusTextLabel and statusTextLabel.Parent then statusTextLabel.Text = tostring(message) end
 end
 
--- --- Hàm Khóa Tất Cả Motor6D của Nhân vật (Đã tối ưu) ---
-local function lockAllCharacterMotors(characterModel)
-    if not characterModel or not characterModel.Parent then
-        print("[MotorLock] Nhân vật không hợp lệ để khóa motors.")
-        return
-    end
-    
-    -- Ngắt kết nối cũ nếu có để tránh nhiều vòng lặp RenderStepped
-    if motorLockConnection and motorLockConnection.Connected then
-        print("[MotorLock] Ngắt kết nối RenderStepped khóa motor cũ.")
-        motorLockConnection:Disconnect()
-        motorLockConnection = nil
-    end
-    motorStates = {} -- Reset trạng thái đã lưu
-
-    print("[MotorLock] Đang lấy trạng thái Motor6D ban đầu cho nhân vật: " .. characterModel.Name)
-    local motorsFoundCount = 0
-    for _, descendant in ipairs(characterModel:GetDescendants()) do
-        if descendant:IsA("Motor6D") then
-            motorsFoundCount = motorsFoundCount + 1
-            motorStates[descendant] = { C0 = descendant.C0, C1 = descendant.C1 }
-        end
-    end
-
-    if motorsFoundCount == 0 then
-        print("[MotorLock] Không tìm thấy Motor6D nào trong nhân vật: " .. characterModel.Name)
-        return
-    end
-    print("[MotorLock] Đã lưu trạng thái cho " .. motorsFoundCount .. " Motor6D(s).")
-
-    -- Tạo một kết nối RenderStepped duy nhất
-    motorLockConnection = RunService.RenderStepped:Connect(function()
-        if not characterModel or not characterModel.Parent then
-            if motorLockConnection and motorLockConnection.Connected then
-                print("[MotorLock] Nhân vật đã bị xóa, ngắt kết nối RenderStepped.")
-                motorLockConnection:Disconnect()
-                motorLockConnection = nil
-                motorStates = {}
-            end
-            return
-        end
-
-        for motor, originalCFrames in pairs(motorStates) do
-            if motor and motor.Parent then -- Đảm bảo motor vẫn tồn tại
-                -- Sử dụng pcall để tránh lỗi nếu motor bị thay đổi bất ngờ
-                local success, err = pcall(function()
-                    motor.C0 = originalCFrames.C0
-                    motor.C1 = originalCFrames.C1
-                end)
-                if not success then
-                    -- print("[MotorLock] Lỗi khi đặt CFrame cho motor: " .. tostring(err) .. " - Loại bỏ motor này.")
-                    motorStates[motor] = nil -- Ngừng theo dõi motor này nếu có lỗi
-                end
-            else
-                motorStates[motor] = nil -- Motor không còn tồn tại, loại bỏ
-            end
-        end
-    end)
-    print("[MotorLock] Đã kết nối RenderStepped để khóa tất cả Motor6D. Tư thế nhân vật sẽ được giữ nguyên.")
-    updateStatus("Tư thế nhân vật đã khóa.")
-end
-
 -- --- Hàm xử lý file cho LỊCH SỬ server ---
 -- (Giữ nguyên)
+local serverHistoryCache = {}
 local function loadServerHistory()
     print("[FileIO] loadServerHistory() BẮT ĐẦU.")
     if not canAccessFiles then print("[FileIO] Không có quyền truy cập file."); return {} end
-    local historySet = {}
-    local s, c = pcall(readfile_func, SERVER_HISTORY_FILENAME)
-    if s and c then
-        local loadedCount = 0
-        for line in string.gmatch(c, "[^".."\r\n".."]+") do
-            local tL = line:match("^%s*(.-)%s*$")
-            if tL and #tL > 0 then historySet[tL] = true; loadedCount = loadedCount + 1; end
-        end
-        print("[FileIO] Đã tải " .. loadedCount .. " server từ lịch sử.")
-    else print("[FileIO] Lỗi đọc file lịch sử hoặc file không tồn tại: " .. tostring(c)) end
-    serverHistoryCache = historySet;
-    print("[FileIO] loadServerHistory() KẾT THÚC.")
-    return historySet
+    local historySet = {}; local s, c = pcall(readfile_func, SERVER_HISTORY_FILENAME)
+    if s and c then local lC=0; for line in string.gmatch(c,"[^".."\r\n".."]+")do local tL=line:match("^%s*(.-)%s*$") if tL and #tL>0 then historySet[tL]=true;lC=lC+1;end end print("[FileIO] Đã tải "..lC.." server.")
+    else print("[FileIO] Lỗi đọc/không có file lịch sử: "..tostring(c)) end
+    serverHistoryCache=historySet; print("[FileIO] loadServerHistory() KẾT THÚC."); return historySet
 end
-
-local function addJobIdToHistoryAndSave(jobIdToAdd)
-    print("[FileIO] addJobIdToHistoryAndSave() BẮT ĐẦU cho JobId: " .. tostring(jobIdToAdd))
-    if not jobIdToAdd or not canAccessFiles then print("[FileIO] Không thêm JobId hoặc không có quyền truy cập file."); return end
-    serverHistoryCache[jobIdToAdd] = true
-    local lines = {}
-    for id in pairs(serverHistoryCache) do table.insert(lines, id) end
-    local success, err = pcall(writefile_func, SERVER_HISTORY_FILENAME, table.concat(lines, "\n"))
-    if success then print("[FileIO] Đã cập nhật lịch sử server.")
-    else print("[FileIO] Lỗi lưu lịch sử: " .. tostring(err)) end
+local function addJobIdToHistoryAndSave(jId)
+    print("[FileIO] addJobIdToHistoryAndSave() JobId: "..tostring(jId))
+    if not jId or not canAccessFiles then print("[FileIO] Không thêm JobId/không quyền.");return end
+    serverHistoryCache[jId]=true; local l={}; for id in pairs(serverHistoryCache)do table.insert(l,id)end
+    local sS,eR=pcall(writefile_func,SERVER_HISTORY_FILENAME,table.concat(l,"\n"))
+    if sS then print("[FileIO] Đã cập nhật lịch sử.") else print("[FileIO] Lỗi lưu: "..tostring(eR)) end
     print("[FileIO] addJobIdToHistoryAndSave() KẾT THÚC.")
 end
 
 -- --- Hàm Tạo Platform An Toàn ---
 -- (Giữ nguyên)
 local function createSafePlatform()
-    print("[Platform] createSafePlatform() BẮT ĐẦU.")
-    updateStatus("Đang tạo platform an toàn...")
-
-    if game.Workspace:FindFirstChild(AFK_PLATFORM_NAME) then
-        print("[Platform] Platform an toàn đã tồn tại.")
-        updateStatus("Platform đã có sẵn.")
-        return game.Workspace:FindFirstChild(AFK_PLATFORM_NAME)
-    end
-
-    print("[Platform] Đang tạo Part cho Platform an toàn...")
-    local platform = Instance.new("Part")
-    platform.Name = AFK_PLATFORM_NAME; platform.Anchored = true; platform.CanCollide = true
-    platform.Size = Vector3.new(20000, 40, 20000); platform.Color = Color3.fromRGB(50, 50, 50)
-    platform.Material = Enum.Material.Concrete; platform.TopSurface = Enum.SurfaceType.Smooth
-    platform.BottomSurface = Enum.SurfaceType.Smooth; platform.Transparency = 0
-
-    local character = LocalPlayer.Character
-    local humanoid = character and character:FindFirstChildOfClass("Humanoid")
-    local humanoidRootPart = character and character:FindFirstChild("HumanoidRootPart")
-
-    if humanoid and humanoidRootPart then
-        print("[Platform] Tìm thấy HRP Y: " .. humanoidRootPart.Position.Y .. ", HipH: " .. humanoid.HipHeight .. ", Offset: " .. PLATFORM_VERTICAL_OFFSET)
-        local hrpPos = humanoidRootPart.Position; local hrpSizeY = humanoidRootPart.Size.Y; local hipHeight = humanoid.HipHeight
-        local feetContactIdealY = hrpPos.Y - (hrpSizeY / 2) - hipHeight
-        local platformTopTargetY = feetContactIdealY - PLATFORM_VERTICAL_OFFSET
-        local platformCenterY = platformTopTargetY - (platform.Size.Y / 2)
-        platform.Position = Vector3.new(hrpPos.X, platformCenterY, hrpPos.Z)
-        print(string.format("[Platform] Platform tạo: Tâm Y: %.2f, Mặt trên Y: %.2f (Chân lý tưởng Y: %.2f, Offset: %.2f)",
-            platformCenterY, platformTopTargetY, feetContactIdealY, PLATFORM_VERTICAL_OFFSET))
+    print("[Platform] createSafePlatform() BẮT ĐẦU."); updateStatus("Đang tạo platform...")
+    if game.Workspace:FindFirstChild(AFK_PLATFORM_NAME)then print("[Platform] Platform đã tồn tại.");updateStatus("Platform đã có.");return game.Workspace:FindFirstChild(AFK_PLATFORM_NAME)end
+    print("[Platform] Đang tạo Part platform..."); local p=Instance.new("Part");p.Name=AFK_PLATFORM_NAME;p.Anchored=true;p.CanCollide=true;p.Size=Vector3.new(20000,40,20000);p.Color=Color3.fromRGB(50,50,50);p.Material=Enum.Material.Concrete;p.TopSurface=Enum.SurfaceType.Smooth;p.BottomSurface=Enum.SurfaceType.Smooth;p.Transparency=0
+    local char=LocalPlayer.Character; local hum=char and char:FindFirstChildOfClass("Humanoid"); local hrp=char and char:FindFirstChild("HumanoidRootPart")
+    if hum and hrp then
+        print("[Platform] HRP Y:"..hrp.Position.Y..", HipH:"..hum.HipHeight..", Offset:"..PLATFORM_VERTICAL_OFFSET)
+        local hrpP=hrp.Position;local hrpSY=hrp.Size.Y;local hipH=hum.HipHeight;local fCIY=hrpP.Y-(hrpSY/2)-hipH;local pTTY=fCIY-PLATFORM_VERTICAL_OFFSET;local pCY=pTTY-(p.Size.Y/2)
+        p.Position=Vector3.new(hrpP.X,pCY,hrpP.Z);print(string.format("[Platform] Platform: TâmY:%.2f, MặtTrênY:%.2f (ChânLýTưởngY:%.2f, Offset:%.2f)",pCY,pTTY,fCIY,PLATFORM_VERTICAL_OFFSET))
     else
-        print("[Platform] KHÔNG tìm thấy HRP/Humanoid. Đặt platform mặc định.")
-        platform.Position = Vector3.new(0, -30 - PLATFORM_VERTICAL_OFFSET, 0)
-        if not character then print("[Platform] Lý do: LocalPlayer.Character nil")
-        elseif not humanoid then print("[Platform] Lý do: Character không có Humanoid")
-        elseif not humanoidRootPart then print("[Platform] Lý do: Character không có HRP") end
+        print("[Platform] KHÔNG tìm HRP/Humanoid. Đặt mặc định.");p.Position=Vector3.new(0,-30-PLATFORM_VERTICAL_OFFSET,0)
+        if not char then print("[Platform] Lý do: Char nil") elseif not hum then print("[Platform] Lý do: No Humanoid") elseif not hrp then print("[Platform] Lý do: No HRP") end
     end
-    platform.Parent = game.Workspace
-    print("[Platform] Platform an toàn ĐÃ TẠO XONG."); updateStatus("Platform an toàn đã tạo.")
-    return platform
+    p.Parent=game.Workspace;print("[Platform] Platform ĐÃ TẠO.");updateStatus("Platform đã tạo.");return p
 end
 
--- --- Script Tối Ưu Hóa Đồ Họa (XÓA MỌI THỨ TRỪ PLATFORM VÀ NHÂN VẬT) ---
+-- --- Hàm Thiết Lập View AFK Tĩnh (MỚI) ---
+local function setupStaticAfkView()
+    print("[StaticView] Bắt đầu thiết lập view AFK tĩnh...")
+    updateStatus("Thiết lập view AFK tĩnh...")
+
+    local player = LocalPlayer
+    local character = player.Character
+    if not character then
+        print("[StaticView] Nhân vật chưa tải, đang đợi CharacterAdded...")
+        character = player.CharacterAdded:Wait() -- Đợi nhân vật xuất hiện
+        if not character then
+            print("[StaticView] KHÔNG THỂ LẤY NHÂN VẬT. Bỏ qua thiết lập view tĩnh.")
+            return
+        end
+        print("[StaticView] Nhân vật đã xuất hiện: " .. character.Name)
+    end
+
+    local head = character:FindFirstChild("Head")
+    if not head then
+        print("[StaticView] Đang đợi Head của nhân vật '" .. character.Name .. "'...")
+        head = character:WaitForChild("Head", 10)
+        if not head then
+            print("[StaticView] KHÔNG tìm thấy Head của nhân vật '" .. character.Name .. "'. Bỏ qua thiết lập view tĩnh.")
+            return
+        end
+    end
+
+    local humanoidRootPart = character:FindFirstChild("HumanoidRootPart")
+    if humanoidRootPart then
+        humanoidRootPart.Anchored = true -- Neo nhân vật lại
+        print("[StaticView] HumanoidRootPart của nhân vật đã được Neo tại: " .. tostring(humanoidRootPart.Position))
+    else
+        print("[StaticView] KHÔNG tìm thấy HumanoidRootPart để Neo nhân vật.")
+    end
+    
+    local camera = workspace.CurrentCamera
+    if not camera then
+        print("[StaticView] workspace.CurrentCamera không tồn tại. Bỏ qua thiết lập view tĩnh.")
+        return
+    end
+
+    -- Tạo/Lấy Part Neo Tĩnh Ở Đầu
+    local staticHeadAnchor = workspace:FindFirstChild(STATIC_HEAD_ANCHOR_PART_NAME)
+    if not staticHeadAnchor then
+        staticHeadAnchor = Instance.new("Part")
+        staticHeadAnchor.Name = STATIC_HEAD_ANCHOR_PART_NAME
+        staticHeadAnchor.Size = Vector3.new(0.1, 0.1, 0.1) -- Rất nhỏ
+        staticHeadAnchor.Transparency = 1 -- Vô hình
+        staticHeadAnchor.CanCollide = false
+        staticHeadAnchor.Parent = workspace
+        print("[StaticView] Đã tạo " .. STATIC_HEAD_ANCHOR_PART_NAME)
+    end
+    staticHeadAnchor.CFrame = head.CFrame -- Đặt CFrame THEO ĐẦU một lần
+    staticHeadAnchor.Anchored = true      -- SAU ĐÓ NEO LẠI
+    print("[StaticView] " .. STATIC_HEAD_ANCHOR_PART_NAME .. " đã được định vị và neo tại CFrame của đầu.")
+
+    -- Tạo/Lấy Part Đen Tĩnh Làm Mục Tiêu
+    local blackTarget = workspace:FindFirstChild(STATIC_BLACK_SCREEN_PART_NAME)
+    if not blackTarget then
+        blackTarget = Instance.new("Part")
+        blackTarget.Name = STATIC_BLACK_SCREEN_PART_NAME
+        blackTarget.Size = Vector3.new(2500, 2500, 10) -- Đủ lớn để che màn hình
+        blackTarget.Color = Color3.fromRGB(0, 0, 0)
+        blackTarget.Material = Enum.Material.Plastic
+        blackTarget.Transparency = 0 -- Không trong suốt
+        blackTarget.CanCollide = false
+        blackTarget.Parent = workspace
+        print("[StaticView] Đã tạo " .. STATIC_BLACK_SCREEN_PART_NAME)
+    end
+    -- Đặt part đen ở phía ĐÔNG (trục +X) của part neo đầu
+    local eastDirectionOffset = Vector3.new(150, 0, 0) -- Cách 150 studs về phía Đông
+    blackTarget.CFrame = CFrame.new(staticHeadAnchor.Position + eastDirectionOffset)
+    blackTarget.Anchored = true
+    print("[StaticView] " .. STATIC_BLACK_SCREEN_PART_NAME .. " đã được định vị và neo tại: " .. tostring(blackTarget.Position))
+
+    -- Thiết lập Camera MỘT LẦN
+    camera.CameraType = Enum.CameraType.Scriptable
+    camera.CFrame = CFrame.new(staticHeadAnchor.Position, blackTarget.Position) -- Nhìn từ part neo đến part đen
+    camera.Focus = blackTarget.CFrame -- Đặt Focus của camera
+    print("[StaticView] Camera đã được thiết lập tĩnh để nhìn vào part đen. Vị trí Camera: " .. tostring(camera.CFrame.Position))
+    updateStatus("View AFK tĩnh đã thiết lập.")
+end
+
+
+-- --- Script Tối Ưu Hóa Đồ Họa (XÓA TRỪ PLATFORM, NHÂN VẬT, CAMERA VÀ PART HỖ TRỢ) ---
 local function optimizeGraphics()
-    print("[Optimizer] optimizeGraphics() BẮT ĐẦU.")
-    updateStatus("Bắt đầu tối ưu đồ họa...")
+    print("[Optimizer] optimizeGraphics() BẮT ĐẦU."); updateStatus("Bắt đầu tối ưu đồ họa...")
     createSafePlatform(); print("[Optimizer] createSafePlatform() đã gọi."); updateStatus("Platform đã xử lý.")
     task.wait(0.1)
 
-    local success_pcall, error_pcall = pcall(function()
-        print("[Optimizer] Bên trong pcall optimizeGraphics()."); updateStatus("Tối ưu hóa đồ họa (XÓA MẠNH)...")
-        task.wait(0.1)
-        print("[GraphicsOptimizer] Chuẩn bị xóa Workspace...")
-        local itemsToDelete = {}
-        if not LocalPlayer.Character then print("[GraphicsOptimizer] CẢNH BÁO: LocalPlayer.Character nil khi xóa!") end
+    local sP, eP = pcall(function()
+        print("[Optimizer] Bên trong pcall optimizeGraphics()."); updateStatus("Tối ưu (XÓA MẠNH, GIỮ CAMERA)...")
+        task.wait(0.1); print("[GraphicsOptimizer] Chuẩn bị xóa Workspace...")
+        local itemsToDel={}; if not LocalPlayer.Character then print("[Opt] CẢNH BÁO: Char nil khi xóa!") end
 
-        for _, topLevelItem in pairs(game.Workspace:GetChildren()) do
-            local isPlayerCharacter = LocalPlayer.Character and topLevelItem.Name == LocalPlayer.Character.Name
-            if not (isPlayerCharacter or topLevelItem.Name == AFK_PLATFORM_NAME) then
-                table.insert(itemsToDelete, topLevelItem)
+        for _,item in pairs(game.Workspace:GetChildren()) do
+            local isChar = LocalPlayer.Character and item.Name == LocalPlayer.Character.Name
+            -- GIỮ LẠI: Nhân vật, Platform AFK, Camera chính, Part neo đầu, Part màn hình đen
+            if not (isChar or 
+                    item.Name == AFK_PLATFORM_NAME or 
+                    item == workspace.CurrentCamera or 
+                    item.Name == STATIC_HEAD_ANCHOR_PART_NAME or 
+                    item.Name == STATIC_BLACK_SCREEN_PART_NAME) then
+                table.insert(itemsToDel, item)
             else
-                print("[GraphicsOptimizer] Giữ lại: " .. topLevelItem.Name)
+                print("[Opt] Giữ lại: " .. item.Name)
             end
         end
         
-        print("[GraphicsOptimizer] Sẽ xóa " .. #itemsToDelete .. " đối tượng."); updateStatus("Sẽ xóa " .. #itemsToDelete .. " đối tượng...")
-        for i, item in ipairs(itemsToDelete) do
-            local sD, eD = pcall(function() item:Destroy() end)
-            if not sD then print("[GraphicsOptimizer] Lỗi xóa " .. item.Name .. ": " .. tostring(eD)) end
-        end
-        print("[GraphicsOptimizer] Đã xóa " .. #itemsToDelete .. " đối tượng."); updateStatus("Đã xóa đối tượng thừa.")
+        print("[Opt] Sẽ xóa " .. #itemsToDel .. " đối tượng."); updateStatus("Sẽ xóa " .. #itemsToDel .. " đối tượng...")
+        for _,item in ipairs(itemsToDel) do local sD,eD=pcall(function()item:Destroy()end) if not sD then print("[Opt] Lỗi xóa "..item.Name..": "..tostring(eD))end end
+        print("[Opt] Đã xóa "..#itemsToDel.." đối tượng."); updateStatus("Đã xóa đối tượng thừa.")
 
-        print("[GraphicsOptimizer] Cấu hình Lighting..."); Lighting.GlobalShadows = false; Lighting.Brightness = 0
-        Lighting.Ambient = Color3.new(0,0,0); Lighting.OutdoorAmbient = Color3.new(0,0,0)
-        Lighting.ClockTime = 12; Lighting.FogEnd = 1e9; Lighting.FogStart = 1e9-1
-        Lighting.ExposureCompensation = -2
-        pcall(function() local atm = Lighting:FindFirstChild("Atmosphere"); if atm then atm:Destroy() end end)
-        pcall(function() local sky = Lighting:FindFirstChild("Sky"); if sky then sky:Destroy() end end)
-        print("[GraphicsOptimizer] Đã cấu hình Lighting.")
+        print("[Opt] Cấu hình Lighting..."); Lighting.GlobalShadows=false;Lighting.Brightness=0;Lighting.Ambient=Color3.new(0,0,0);Lighting.OutdoorAmbient=Color3.new(0,0,0);Lighting.ClockTime=12;Lighting.FogEnd=1e9;Lighting.FogStart=1e9-1;Lighting.ExposureCompensation=-2
+        pcall(function()local atm=Lighting:FindFirstChild("Atmosphere");if atm then atm:Destroy()end end)
+        pcall(function()local sky=Lighting:FindFirstChild("Sky");if sky then sky:Destroy()end end)
+        print("[Opt] Đã cấu hình Lighting.")
 
-        print("[GraphicsOptimizer] Xử lý GUI PlayerGui...");
-        if LocalPlayer:FindFirstChild("PlayerGui") then
-            for _, gui in pairs(LocalPlayer.PlayerGui:GetChildren()) do
-                if gui.Name ~= SERVER_HOP_GUI_NAME then pcall(function() gui:Destroy() end) end
-            end
-        end; print("[GraphicsOptimizer] Đã xử lý GUI PlayerGui.")
-
-        print("[GraphicsOptimizer] Cấu hình Rendering...")
-        local sS, sO = pcall(function() return settings() end)
-        if sS and sO and sO.Rendering then
-            sO.Rendering.QualityLevel = Enum.QualityLevel.Level01
-            pcall(function() RunService:Set3dRenderingEnabled(false) end)
-        else print("[GraphicsOptimizer] Không thể truy cập settings().Rendering.") end
-        print("[GraphicsOptimizer] Đã cấu hình Rendering.")
-
-        print("[GraphicsOptimizer] Tắt âm thanh..."); SoundService.RespectFilteringEnabled = true
-        SoundService.AmbientReverb = Enum.ReverbType.NoReverb
-        for _, sound in pairs(game:GetDescendants()) do
-            if sound:IsA("Sound") then pcall(function() sound.Volume = 0; sound:Stop() end) end
-        end; print("[GraphicsOptimizer] Đã tắt âm thanh.")
-
-        updateStatus("Đồ họa tối ưu (XÓA MẠNH)."); print("[GraphicsOptimizer] Hoàn tất tối ưu (XÓA MẠNH).")
+        print("[Opt] Xử lý GUI PlayerGui..."); if LocalPlayer:FindFirstChild("PlayerGui")then for _,gui in pairs(LocalPlayer.PlayerGui:GetChildren())do if gui.Name~=SERVER_HOP_GUI_NAME then pcall(function()gui:Destroy()end)end end end; print("[Opt] Đã xử lý GUI PlayerGui.")
+        print("[Opt] Cấu hình Rendering..."); local sS,sO=pcall(function()return settings()end)
+        if sS and sO and sO.Rendering then sO.Rendering.QualityLevel=Enum.QualityLevel.Level01;pcall(function()RunService:Set3dRenderingEnabled(false)end)
+        else print("[Opt] Không thể truy cập settings().Rendering.")end; print("[Opt] Đã cấu hình Rendering.")
+        print("[Opt] Tắt âm thanh...");SoundService.RespectFilteringEnabled=true;SoundService.AmbientReverb=Enum.ReverbType.NoReverb
+        for _,sound in pairs(game:GetDescendants())do if sound:IsA("Sound")then pcall(function()sound.Volume=0;sound:Stop()end)end end;print("[Opt] Đã tắt âm thanh.")
+        updateStatus("Đồ họa tối ưu (GIỮ CAMERA).");print("[Opt] Hoàn tất tối ưu (GIỮ CAMERA).")
     end)
-    if not success_pcall then
-        warn("[GraphicsOptimizer] LỖI PCALL optimizeGraphics: " .. tostring(error_pcall))
-        updateStatus("LỖI tối ưu: " .. string.sub(tostring(error_pcall), 1, 30))
-    else print("[Optimizer] pcall optimizeGraphics() THÀNH CÔNG.") end
+    if not sP then warn("[Opt] LỖI PCALL optimizeGraphics: "..tostring(eP));updateStatus("LỖI tối ưu: "..string.sub(tostring(eP),1,30))
+    else print("[Opt] pcall optimizeGraphics() THÀNH CÔNG.")end
     print("[Optimizer] optimizeGraphics() KẾT THÚC.")
 end
 
@@ -280,97 +239,51 @@ end
 local chosenServer = nil
 local serversUrlBase = "https://games.roblox.com/v1/games/" .. placeId .. "/servers/Public?sortOrder=Asc&limit=100"
 local serverHistoryToAvoid = loadServerHistory()
-
 local function listServers(cursor)
-    local requestUrl = serversUrlBase
-    if cursor then requestUrl = requestUrl .. "&cursor=" .. cursor end
-    local successCall, result = pcall(function() return game:HttpGet(requestUrl, true) end)
-    if not successCall then print("[ServerList] HttpGet thất bại: " .. tostring(result)); return false, "HttpGet thất bại: " .. tostring(result) end
-    local successDecode, decodedResult = pcall(function() return HttpService:JSONDecode(result) end)
-    if not successDecode then print("[ServerList] JSONDecode thất bại: " .. tostring(decodedResult)); return false, "JSONDecode thất bại: " .. tostring(decodedResult) end
-    return true, decodedResult
+    local requestUrl = serversUrlBase; if cursor then requestUrl = requestUrl.."&cursor="..cursor end
+    local sC, res = pcall(function()return game:HttpGet(requestUrl,true)end)
+    if not sC then print("[SL] HttpGet fail: "..tostring(res));return false,"HttpGet fail: "..tostring(res)end
+    local sD, dRes = pcall(function()return HttpService:JSONDecode(res)end)
+    if not sD then print("[SL] JSONDecode fail: "..tostring(dRes));return false,"JSONDecode fail: "..tostring(dRes)end
+    return true,dRes
 end
-
 function searchForServer()
-    print("[SearchServer] searchForServer() BẮT ĐẦU.")
-    local historyCount = 0; for _ in pairs(serverHistoryToAvoid) do historyCount = historyCount + 1 end
-    updateStatus(string.format("Tìm server (%.0f%%-%.0f%%). Tránh %d server.",
-        minPlayerPercentage * 100, maxPlayerPercentageLimit * 100, historyCount + 1))
-
-    local searchLoopActive = true; chosenServer = nil
-    while searchLoopActive and not chosenServer do
-        local currentNextCursorForFullScan = nil
-        updateStatus("Quét server..."); print("[SearchServer] Bắt đầu vòng lặp quét trang.")
-        local allPagesScannedForThisRound = false
-        while not allPagesScannedForThisRound and not chosenServer do
-            local pageScanAttempts = 0; local maxPageScanAttempts = 4
-            local pageSuccessfullyFetched = false; local currentRetryDelayPage = baseRetryDelay
-            while not pageSuccessfullyFetched and pageScanAttempts < maxPageScanAttempts do
-                pageScanAttempts = pageScanAttempts + 1
-                if pageScanAttempts > 1 then
-                    updateStatus(string.format("Thử lại trang (%d/%d). Chờ %.1fs...", pageScanAttempts, maxPageScanAttempts, currentRetryDelayPage))
-                    task.wait(currentRetryDelayPage); currentRetryDelayPage = math.min(currentRetryDelayPage * 2, maxRetryDelay)
-                else updateStatus("Lấy trang server...") end
-                print("[SearchServer] Gọi listServers, cursor: " .. tostring(currentNextCursorForFullScan))
-                local success, dataOrError = listServers(currentNextCursorForFullScan)
-                if success then
-                    pageSuccessfullyFetched = true; currentRetryDelayPage = baseRetryDelay
-                    local serverListData = dataOrError
-                    if serverListData and serverListData.data then
-                        local pageSuitableServers = {}; print("[SearchServer] Nhận " .. #serverListData.data .. " server.")
-                        if #serverListData.data > 0 then
-                            for _, serverInfo in ipairs(serverListData.data) do
-                                local serverId = serverInfo.id
-                                if not (serverId == currentJobId or serverHistoryToAvoid[serverId]) then
-                                    if serverInfo.playing and serverInfo.maxPlayers and serverInfo.maxPlayers > 0 then
-                                        local playerRatio = serverInfo.playing / serverInfo.maxPlayers
-                                        if playerRatio >= minPlayerPercentage and playerRatio < maxPlayerPercentageLimit and serverInfo.playing < serverInfo.maxPlayers then
-                                            table.insert(pageSuitableServers, serverInfo)
-                                        end
-                                    end
-                                end
+    print("[SS] searchForServer() BẮT ĐẦU."); local histC=0;for _ in pairs(serverHistoryToAvoid)do histC=histC+1 end
+    updateStatus(string.format("Tìm server (%.0f%%-%.0f%%). Tránh %d.",minPlayerPercentage*100,maxPlayerPercentageLimit*100,histC+1))
+    local sLActive=true;chosenServer=nil
+    while sLActive and not chosenServer do
+        local nextCur=nil;updateStatus("Quét server...");print("[SS] Quét trang.")
+        local allScanned=false
+        while not allScanned and not chosenServer do
+            local pAtt=0;local maxAtt=4;local pFetched=false;local curRetry=baseRetryDelay
+            while not pFetched and pAtt<maxAtt do
+                pAtt=pAtt+1;if pAtt>1 then updateStatus(string.format("Thử lại (%d/%d).Chờ %.1fs",pAtt,maxAtt,curRetry));task.wait(curRetry);curRetry=math.min(curRetry*2,maxRetryDelay) else updateStatus("Lấy trang...")end
+                print("[SS] listServers, cursor: "..tostring(nextCur)); local s,d=listServers(nextCur)
+                if s then
+                    pFetched=true;curRetry=baseRetryDelay;local sListD=d
+                    if sListD and sListD.data then
+                        local pSuitS={};print("[SS] Nhận "..#sListD.data.." sv.")
+                        if #sListD.data>0 then
+                            for _,sInf in ipairs(sListD.data)do local sId=sInf.id
+                                if not(sId==currentJobId or serverHistoryToAvoid[sId])then if sInf.playing and sInf.maxPlayers and sInf.maxPlayers>0 then local pR=sInf.playing/sInf.maxPlayers if pR>=minPlayerPercentage and pR<maxPlayerPercentageLimit and sInf.playing<sInf.maxPlayers then table.insert(pSuitS,sInf)end end end
                             end
-                            if #pageSuitableServers > 0 then
-                                updateStatus("Thấy " .. #pageSuitableServers .. " server tốt!")
-                                chosenServer = pageSuitableServers[math.random(1, #pageSuitableServers)]
-                                print("[SearchServer] Đã chọn server: " .. chosenServer.id); allPagesScannedForThisRound=true; break
-                            end
+                            if #pSuitS>0 then updateStatus("Thấy "..#pSuitS.." sv tốt!");chosenServer=pSuitS[math.random(1,#pSuitS)];print("[SS] Chọn: "..chosenServer.id);allScanned=true;break end
                         end
-                        if not chosenServer then
-                            currentNextCursorForFullScan = serverListData.nextPageCursor
-                            if not currentNextCursorForFullScan then allPagesScannedForThisRound=true; updateStatus("Hết server."); print("[SearchServer] Hết cursor.") end
-                        end
-                    else updateStatus("Dữ liệu server lỗi."); print("[SearchServer] Dữ liệu server lỗi.") end
-                else
-                    local errMsgStr = tostring(dataOrError); local shortErr = #errMsgStr > 40 and (string.sub(errMsgStr,1,40).."...") or errMsgStr
-                    updateStatus("Lỗi API: "..shortErr); print("[SearchServer] Lỗi API: "..errMsgStr)
-                    if pageScanAttempts >= maxPageScanAttempts then allPagesScannedForThisRound=true end
-                end
+                        if not chosenServer then nextCur=sListD.nextPageCursor;if not nextCur then allScanned=true;updateStatus("Hết sv.");print("[SS] Hết cursor.")end end
+                    else updateStatus("Dữ liệu sv lỗi.");print("[SS] Dữ liệu sv lỗi.")end
+                else local eM=tostring(d);local sE=#eM>40 and(string.sub(eM,1,40).."...")or eM;updateStatus("Lỗi API: "..sE);print("[SS] Lỗi API: "..eM);if pAtt>=maxAtt then allScanned=true end end
             end
-            if chosenServer or allPagesScannedForThisRound then print("[SearchServer] Thoát quét trang."); break end
-            if pageSuccessfullyFetched and not allPagesScannedForThisRound and not chosenServer then print("[SearchServer] Chờ giữa các trang."); task.wait(waitTimeBetweenPageFetches) end
+            if chosenServer or allScanned then print("[SS] Thoát quét trang.");break end
+            if pFetched and not allScanned and not chosenServer then print("[SS] Chờ giữa trang.");task.wait(waitTimeBetweenPageFetches)end
         end
-        if chosenServer then
-            local shortId = chosenServer.id and string.sub(tostring(chosenServer.id),1,8) or "N/A"
-            updateStatus(string.format("CHỌN SERVER! ID: %s (%d/%d)",shortId,chosenServer.playing or 0,chosenServer.maxPlayers or 0))
-            searchLoopActive = false
-        elseif allPagesScannedForThisRound then
-            updateStatus(string.format("Không tìm thấy. Chờ %ds quét lại...", waitTimeBetweenFullScans))
-            print("[SearchServer] Không tìm thấy, chờ quét lại."); task.wait(waitTimeBetweenFullScans)
-        end
+        if chosenServer then local sId=chosenServer.id and string.sub(tostring(chosenServer.id),1,8)or"N/A";updateStatus(string.format("CHỌN! ID:%s (%d/%d)",sId,chosenServer.playing or 0,chosenServer.maxPlayers or 0));sLActive=false
+        elseif allScanned then updateStatus(string.format("Ko tìm thấy.Chờ %ds.",waitTimeBetweenFullScans));print("[SS] Ko tìm thấy, chờ quét lại.");task.wait(waitTimeBetweenFullScans)end
     end
-    if chosenServer then
-        updateStatus("Đang dịch chuyển..."); print("[SearchServer] Dịch chuyển đến " .. chosenServer.id)
-        addJobIdToHistoryAndSave(currentJobId); task.wait(1)
-        local sTP, eTP = pcall(function() TeleportService:TeleportToPlaceInstance(placeId, chosenServer.id, LocalPlayer) end)
-        if not sTP then
-            local eTpStr=tostring(eTP); local sErrTp=#eTpStr>40 and (string.sub(eTpStr,1,40).."...") or eTpStr
-            updateStatus("Dịch chuyển lỗi: "..sErrTp); print("[SearchServer] Lỗi dịch chuyển: "..eTpStr)
-            serverHistoryToAvoid[chosenServer.id]=true; print("[SearchServer] Thêm server lỗi ("..tostring(chosenServer.id)..") vào tránh.")
-            chosenServer=nil; task.wait(5); searchForServer()
-        end
-    else updateStatus("Không tìm thấy server. Dừng."); print("[SearchServer] Không tìm thấy server. Dừng.") end
-    print("[SearchServer] searchForServer() KẾT THÚC.")
+    if chosenServer then updateStatus("Dịch chuyển...");print("[SS] Dịch chuyển đến "..chosenServer.id);addJobIdToHistoryAndSave(currentJobId);task.wait(1)
+        local sTP,eTP=pcall(function()TeleportService:TeleportToPlaceInstance(placeId,chosenServer.id,LocalPlayer)end)
+        if not sTP then local eTpS=tostring(eTP);local sErrTp=#eTpS>40 and(string.sub(eTpS,1,40).."...")or eTpS;updateStatus("Lỗi TP: "..sErrTp);print("[SS] Lỗi TP: "..eTpS);serverHistoryToAvoid[chosenServer.id]=true;print("[SS] Thêm sv lỗi ("..tostring(chosenServer.id)..") vào tránh.");chosenServer=nil;task.wait(5);searchForServer()end
+    else updateStatus("Ko tìm thấy sv. Dừng.");print("[SS] Ko tìm thấy sv. Dừng.")end
+    print("[SS] searchForServer() KẾT THÚC.")
 end
 
 -- --- Quản lý Countdown và Donate ---
@@ -378,95 +291,55 @@ end
 local countdownShouldReset = false
 local currentCountdownThread = nil
 local function performCountdownThenSearch(minutesToWait)
-    print("[Countdown] performCountdownThenSearch() BẮT ĐẦU với " .. minutesToWait .. " phút.")
+    print("[CD] performCountdownThenSearch() BẮT ĐẦU " .. minutesToWait .. " phút.")
     if not minutesToWait or minutesToWait <= 0 then updateStatus("TG chờ lỗi. Tìm ngay..."); searchForServer(); return end
-    local totalS = minutesToWait * 60
-    print(string.format("[Countdown] Tìm sau: %d phút %d giây...", math.floor(totalS/60), totalS%60))
+    local totalS = minutesToWait * 60; print(string.format("[CD] Tìm sau: %d phút %d giây...", math.floor(totalS/60), totalS%60))
     for i=totalS, 0, -1 do
-        if countdownShouldReset then
-            print("[Countdown] Reset do donate."); countdownShouldReset=false; updateStatus("Donate! Reset.")
-            startInitialCountdown(); return
-        end
+        if countdownShouldReset then print("[CD] Reset donate."); countdownShouldReset=false; updateStatus("Donate! Reset."); startInitialCountdown(); return end
         if statusTextLabel and statusTextLabel.Parent then statusTextLabel.Text=string.format("%02d:%02d", math.floor(i/60), i%60) end
         task.wait(1)
     end
-    updateStatus("Hết giờ! Tìm server..."); print("[Countdown] Hết giờ, tìm server.")
-    searchForServer(); print("[Countdown] performCountdownThenSearch() KẾT THÚC.")
+    updateStatus("Hết giờ! Tìm sv..."); print("[CD] Hết giờ, tìm sv."); searchForServer(); print("[CD] performCountdownThenSearch() KẾT THÚC.")
 end
-
 local function startInitialCountdown()
-    print("[Countdown] startInitialCountdown() BẮT ĐẦU."); updateStatus("Bắt đầu đếm ngược...")
-    if currentCountdownThread and coroutine.status(currentCountdownThread) ~= "dead" then
-        print("[Countdown] Đóng coroutine cũ."); pcall(coroutine.close, currentCountdownThread); currentCountdownThread=nil
-    end
-    currentCountdownThread = coroutine.create(function()
-        print("[Countdown] Coroutine mới tạo.")
-        local s,e = pcall(performCountdownThenSearch, DEFAULT_WAIT_MINUTES)
-        if not s then warn("[Countdown] LỖI COROUTINE: "..tostring(e)); updateStatus("Lỗi coroutine. Thử lại 5s..."); task.wait(5); startInitialCountdown()
-        else print("[Countdown] Coroutine hoàn thành.") end
-    end)
-    coroutine.resume(currentCountdownThread)
-    print("[Countdown] Coroutine resumed. Status: " .. coroutine.status(currentCountdownThread))
+    print("[CD] startInitialCountdown() BẮT ĐẦU."); updateStatus("Bắt đầu đếm ngược...")
+    if currentCountdownThread and coroutine.status(currentCountdownThread)~="dead" then print("[CD] Đóng coroutine cũ.");pcall(coroutine.close,currentCountdownThread);currentCountdownThread=nil end
+    currentCountdownThread=coroutine.create(function() print("[CD] Coroutine mới.");local s,e=pcall(performCountdownThenSearch,DEFAULT_WAIT_MINUTES) if not s then warn("[CD] LỖI COROUTINE: "..tostring(e));updateStatus("Lỗi Coroutine.Thử lại 5s...");task.wait(5);startInitialCountdown() else print("[CD] Coroutine hoàn thành.")end end)
+    coroutine.resume(currentCountdownThread); print("[CD] Coroutine resumed. Status: "..coroutine.status(currentCountdownThread))
 end
-
 
 -- --- Khởi chạy Script ---
 print("[MainInit] Script BẮT ĐẦU KHỞI CHẠY.")
 updateStatus("Khởi tạo ServerHop...")
 
--- Kết nối sự kiện CharacterAdded sớm
-if LocalPlayer then
-    LocalPlayer.CharacterAdded:Connect(function(newCharacter)
-        print("[CharControl] Sự kiện CharacterAdded: Nhân vật mới '" .. newCharacter.Name .. "' được thêm/hồi sinh.")
-        -- Chờ một chút để đảm bảo Humanoid và các thành phần khác của nhân vật đã sẵn sàng
-        task.wait(0.5) -- Quan trọng: Chờ Humanoid có thể được tạo
-        lockAllCharacterMotors(newCharacter) -- Khóa motors cho nhân vật mới/hồi sinh
-    end)
-else
-    print("[MainInit] CẢNH BÁO: LocalPlayer is nil khi cố gắng kết nối CharacterAdded.")
-end
+-- Không cần kết nối CharacterAdded cho logic camera tĩnh này vì nó chỉ chạy 1 lần.
+-- Logic cũ về khóa motor/autoRotate cũng đã bị loại bỏ.
 
-task.wait(0.2) -- Đợi một chút cho UI ban đầu
+task.wait(0.2)
+updateStatus("Chờ 30 giây cho game tải...")
+print(string.format("[MainInit] Chờ 30s tối ưu hóa. Time: %s", os.date and os.date("%X") or "N/A"))
+task.wait(30)
+print(string.format("[MainInit] HẾT 30 GIÂY CHỜ. Time: %s", os.date and os.date("%X") or "N/A"))
+updateStatus("Hết 30s chờ. Bắt đầu thiết lập view tĩnh và tối ưu...")
 
-updateStatus("Chờ 30 giây cho game tải hoàn chỉnh...")
-print(string.format("[MainInit] Sẽ bắt đầu khóa nhân vật và tối ưu hóa đồ họa sau 30 giây. Thời gian hiện tại (ước tính): %s", os.date and os.date("%X") or "không rõ"))
-task.wait(30) -- ĐỢI 30 GIÂY
-print(string.format("[MainInit] ĐÃ HẾT 30 GIÂY CHỜ. Thời gian hiện tại (ước tính): %s", os.date and os.date("%X") or "không rõ"))
-updateStatus("Hết 30s chờ. Bắt đầu khóa nhân vật và tối ưu...")
+-- Thiết lập view AFK tĩnh (bao gồm neo HRP, tạo part neo đầu, part đen, đặt camera)
+print("[MainInit] Gọi setupStaticAfkView().")
+setupStaticAfkView()
 
--- Khóa motors cho nhân vật hiện tại (nếu đã có)
-if LocalPlayer.Character then
-    print("[MainInit] Thực hiện khóa Motor6D lần đầu cho nhân vật hiện tại.")
-    lockAllCharacterMotors(LocalPlayer.Character)
-else
-    print("[MainInit] Nhân vật chưa tải xong sau 30s để khóa Motor6D lần đầu (CharacterAdded sẽ xử lý nếu nhân vật xuất hiện sau).")
-end
--- Lưu ý: Không còn gọi setupFixedCameraOrientation() nữa vì logic đó đã được thay thế.
-
-optimizeGraphics()
+optimizeGraphics() -- Hàm này giờ sẽ KHÔNG xóa CurrentCamera và các part hỗ trợ camera
 print("[MainInit] optimizeGraphics() ĐÃ GỌI XONG.")
 updateStatus("Tối ưu xong. Chuẩn bị đếm ngược...")
 task.wait(0.3)
 
-print(string.format("[MainInit] Chuẩn bị gọi startInitialCountdown(). Thời gian chờ mặc định: %d phút.", DEFAULT_WAIT_MINUTES))
+print(string.format("[MainInit] Gọi startInitialCountdown(). Chờ mặc định: %d phút.", DEFAULT_WAIT_MINUTES))
 startInitialCountdown()
 print("[MainInit] startInitialCountdown() ĐÃ GỌI XONG.")
 
-local lsSuccess, ls = pcall(function() print("[Donate] Đang WaitForChild leaderstats..."); return LocalPlayer:WaitForChild("leaderstats",15) end)
-if lsSuccess and ls then
-    print("[Donate] Tìm thấy leaderstats.")
-    local rvSuccess, rvObj = pcall(function() print("[Donate] Đang WaitForChild Raised..."); return ls:WaitForChild("Raised",15) end)
-    if rvSuccess and rvObj then
-        print("[Donate] Tìm thấy Raised. Gắn event Changed.")
-        local lastRaised = rvObj.Value
-        rvObj.Changed:Connect(function(newVal)
-            if newVal > lastRaised then
-                print("[Donate] Phát hiện donate! Raised: " .. lastRaised .. " -> " .. newVal)
-                updateStatus(string.format("Donate! Raised: %.0f -> %.0f", lastRaised, newVal));
-                lastRaised=newVal; countdownShouldReset=true; print("[Donate] Cờ reset countdown đã được đặt.")
-            end
-        end)
-    else print("[Donate] Không thấy 'Raised' trong leaderstats. Lỗi: " .. tostring(rvObj)) end
-else print("[Donate] Không thấy 'leaderstats'. Lỗi: " .. tostring(ls)) end
-
+local lsSuccess,ls=pcall(function()print("[Donate] WaitForChild leaderstats...");return LocalPlayer:WaitForChild("leaderstats",15)end)
+if lsSuccess and ls then print("[Donate] Thấy leaderstats.")
+    local rvS,rvO=pcall(function()print("[Donate] WaitForChild Raised...");return ls:WaitForChild("Raised",15)end)
+    if rvS and rvO then print("[Donate] Thấy Raised. Gắn event.")
+        local lastR=rvO.Value;rvO.Changed:Connect(function(nV)if nV>lastR then print("[Donate] Donate! "..lastR.."-> "..nV);updateStatus(string.format("Donate! Raised: %.0f->%.0f",lastR,nV));lastR=nV;countdownShouldReset=true;print("[Donate] Cờ reset set.")end end)
+    else print("[Donate] Ko thấy 'Raised'. Lỗi: "..tostring(rvO))end
+else print("[Donate] Ko thấy 'leaderstats'. Lỗi: "..tostring(ls))end
 print("[MainInit] Script đã hoàn tất khởi chạy chính.")
