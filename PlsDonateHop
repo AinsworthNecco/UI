@@ -24,8 +24,8 @@ local PLATFORM_VERTICAL_OFFSET = 0
 local SERVER_HISTORY_FILENAME = "server_hop_history.txt"
 local SERVER_HOP_GUI_NAME = "ServerHopStatusGUI"
 local AFK_PLATFORM_NAME = "MySafeAFKPlatform"
-local STATIC_HEAD_ANCHOR_PART_NAME = "AFK_HeadAnchor" -- Part neo ở đầu (tĩnh)
-local STATIC_BLACK_SCREEN_PART_NAME = "AFK_BlackScreen" -- Part đen (tĩnh)
+local STATIC_HEAD_ANCHOR_PART_NAME = "AFK_HeadAnchor_StaticCam"
+local STATIC_BLACK_SCREEN_PART_NAME = "AFK_BlackScreen_StaticCam"
 
 -- [[ NEW CONFIG FOR FIXED TEXT SIZE ]]
 local FIXED_TEXT_SIZE = 50
@@ -66,7 +66,6 @@ local function updateStatus(message)
 end
 
 -- --- Hàm xử lý file cho LỊCH SỬ server ---
--- (Giữ nguyên)
 local serverHistoryCache = {}
 local function loadServerHistory()
     print("[FileIO] loadServerHistory() BẮT ĐẦU.")
@@ -86,7 +85,6 @@ local function addJobIdToHistoryAndSave(jId)
 end
 
 -- --- Hàm Tạo Platform An Toàn ---
--- (Giữ nguyên)
 local function createSafePlatform()
     print("[Platform] createSafePlatform() BẮT ĐẦU."); updateStatus("Đang tạo platform...")
     if game.Workspace:FindFirstChild(AFK_PLATFORM_NAME)then print("[Platform] Platform đã tồn tại.");updateStatus("Platform đã có.");return game.Workspace:FindFirstChild(AFK_PLATFORM_NAME)end
@@ -103,16 +101,16 @@ local function createSafePlatform()
     p.Parent=game.Workspace;print("[Platform] Platform ĐÃ TẠO.");updateStatus("Platform đã tạo.");return p
 end
 
--- --- Hàm Thiết Lập View AFK Tĩnh (MỚI) ---
+-- --- Hàm Thiết Lập View AFK Tĩnh (NHÂN VẬT KHÔNG BỊ NEO, PART NEO ĐẦU CÓ HƯỚNG CỐ ĐỊNH) ---
 local function setupStaticAfkView()
-    print("[StaticView] Bắt đầu thiết lập view AFK tĩnh...")
+    print("[StaticView] Bắt đầu thiết lập view AFK tĩnh (nhân vật tự do, part neo đầu hướng cố định)...")
     updateStatus("Thiết lập view AFK tĩnh...")
 
     local player = LocalPlayer
     local character = player.Character
     if not character then
         print("[StaticView] Nhân vật chưa tải, đang đợi CharacterAdded...")
-        character = player.CharacterAdded:Wait() -- Đợi nhân vật xuất hiện
+        character = player.CharacterAdded:Wait()
         if not character then
             print("[StaticView] KHÔNG THỂ LẤY NHÂN VẬT. Bỏ qua thiết lập view tĩnh.")
             return
@@ -129,14 +127,6 @@ local function setupStaticAfkView()
             return
         end
     end
-
-    local humanoidRootPart = character:FindFirstChild("HumanoidRootPart")
-    if humanoidRootPart then
-        humanoidRootPart.Anchored = true -- Neo nhân vật lại
-        print("[StaticView] HumanoidRootPart của nhân vật đã được Neo tại: " .. tostring(humanoidRootPart.Position))
-    else
-        print("[StaticView] KHÔNG tìm thấy HumanoidRootPart để Neo nhân vật.")
-    end
     
     local camera = workspace.CurrentCamera
     if not camera then
@@ -144,83 +134,68 @@ local function setupStaticAfkView()
         return
     end
 
-    -- Tạo/Lấy Part Neo Tĩnh Ở Đầu
     local staticHeadAnchor = workspace:FindFirstChild(STATIC_HEAD_ANCHOR_PART_NAME)
     if not staticHeadAnchor then
         staticHeadAnchor = Instance.new("Part")
         staticHeadAnchor.Name = STATIC_HEAD_ANCHOR_PART_NAME
-        staticHeadAnchor.Size = Vector3.new(0.1, 0.1, 0.1) -- Rất nhỏ
-        staticHeadAnchor.Transparency = 1 -- Vô hình
+        staticHeadAnchor.Size = Vector3.new(0.1, 0.1, 0.1)
+        staticHeadAnchor.Transparency = 1
         staticHeadAnchor.CanCollide = false
         staticHeadAnchor.Parent = workspace
         print("[StaticView] Đã tạo " .. STATIC_HEAD_ANCHOR_PART_NAME)
     end
-    staticHeadAnchor.CFrame = head.CFrame -- Đặt CFrame THEO ĐẦU một lần
-    staticHeadAnchor.Anchored = true      -- SAU ĐÓ NEO LẠI
-    print("[StaticView] " .. STATIC_HEAD_ANCHOR_PART_NAME .. " đã được định vị và neo tại CFrame của đầu.")
+    -- Đặt CFrame CHỈ LẤY VỊ TRÍ của đầu, hướng của part sẽ là mặc định (0,0,0 so với world)
+    staticHeadAnchor.CFrame = CFrame.new(head.Position) 
+    staticHeadAnchor.Anchored = true
+    print("[StaticView] " .. STATIC_HEAD_ANCHOR_PART_NAME .. " đã được định vị tại vị trí đầu và neo lại (hướng cố định theo thế giới). Vị trí: " .. tostring(staticHeadAnchor.Position))
 
-    -- Tạo/Lấy Part Đen Tĩnh Làm Mục Tiêu
     local blackTarget = workspace:FindFirstChild(STATIC_BLACK_SCREEN_PART_NAME)
     if not blackTarget then
         blackTarget = Instance.new("Part")
         blackTarget.Name = STATIC_BLACK_SCREEN_PART_NAME
-        blackTarget.Size = Vector3.new(2500, 2500, 10) -- Đủ lớn để che màn hình
+        blackTarget.Size = Vector3.new(2500, 2500, 10)
         blackTarget.Color = Color3.fromRGB(0, 0, 0)
         blackTarget.Material = Enum.Material.Plastic
-        blackTarget.Transparency = 0 -- Không trong suốt
+        blackTarget.Transparency = 0
         blackTarget.CanCollide = false
         blackTarget.Parent = workspace
         print("[StaticView] Đã tạo " .. STATIC_BLACK_SCREEN_PART_NAME)
     end
     -- Đặt part đen ở phía ĐÔNG (trục +X) của part neo đầu
-    local eastDirectionOffset = Vector3.new(150, 0, 0) -- Cách 150 studs về phía Đông
-    blackTarget.CFrame = CFrame.new(staticHeadAnchor.Position + eastDirectionOffset)
+    local eastPositionFromAnchor = staticHeadAnchor.Position + Vector3.new(150, 0, 0)
+    blackTarget.CFrame = CFrame.new(eastPositionFromAnchor) -- Chỉ cần vị trí, hướng không quá quan trọng cho part này
     blackTarget.Anchored = true
     print("[StaticView] " .. STATIC_BLACK_SCREEN_PART_NAME .. " đã được định vị và neo tại: " .. tostring(blackTarget.Position))
 
-    -- Thiết lập Camera MỘT LẦN
     camera.CameraType = Enum.CameraType.Scriptable
     camera.CFrame = CFrame.new(staticHeadAnchor.Position, blackTarget.Position) -- Nhìn từ part neo đến part đen
-    camera.Focus = blackTarget.CFrame -- Đặt Focus của camera
+    camera.Focus = blackTarget.CFrame
     print("[StaticView] Camera đã được thiết lập tĩnh để nhìn vào part đen. Vị trí Camera: " .. tostring(camera.CFrame.Position))
-    updateStatus("View AFK tĩnh đã thiết lập.")
+    updateStatus("View AFK tĩnh (hướng cố định) đã thiết lập.")
 end
 
-
--- --- Script Tối Ưu Hóa Đồ Họa (XÓA TRỪ PLATFORM, NHÂN VẬT, CAMERA VÀ PART HỖ TRỢ) ---
+-- --- Script Tối Ưu Hóa Đồ Họa ---
 local function optimizeGraphics()
     print("[Optimizer] optimizeGraphics() BẮT ĐẦU."); updateStatus("Bắt đầu tối ưu đồ họa...")
     createSafePlatform(); print("[Optimizer] createSafePlatform() đã gọi."); updateStatus("Platform đã xử lý.")
     task.wait(0.1)
-
     local sP, eP = pcall(function()
         print("[Optimizer] Bên trong pcall optimizeGraphics()."); updateStatus("Tối ưu (XÓA MẠNH, GIỮ CAMERA)...")
         task.wait(0.1); print("[GraphicsOptimizer] Chuẩn bị xóa Workspace...")
         local itemsToDel={}; if not LocalPlayer.Character then print("[Opt] CẢNH BÁO: Char nil khi xóa!") end
-
         for _,item in pairs(game.Workspace:GetChildren()) do
             local isChar = LocalPlayer.Character and item.Name == LocalPlayer.Character.Name
-            -- GIỮ LẠI: Nhân vật, Platform AFK, Camera chính, Part neo đầu, Part màn hình đen
-            if not (isChar or 
-                    item.Name == AFK_PLATFORM_NAME or 
-                    item == workspace.CurrentCamera or 
-                    item.Name == STATIC_HEAD_ANCHOR_PART_NAME or 
-                    item.Name == STATIC_BLACK_SCREEN_PART_NAME) then
+            if not (isChar or item.Name == AFK_PLATFORM_NAME or item == workspace.CurrentCamera or 
+                    item.Name == STATIC_HEAD_ANCHOR_PART_NAME or item.Name == STATIC_BLACK_SCREEN_PART_NAME) then
                 table.insert(itemsToDel, item)
-            else
-                print("[Opt] Giữ lại: " .. item.Name)
-            end
+            else print("[Opt] Giữ lại: " .. item.Name) end
         end
-        
         print("[Opt] Sẽ xóa " .. #itemsToDel .. " đối tượng."); updateStatus("Sẽ xóa " .. #itemsToDel .. " đối tượng...")
         for _,item in ipairs(itemsToDel) do local sD,eD=pcall(function()item:Destroy()end) if not sD then print("[Opt] Lỗi xóa "..item.Name..": "..tostring(eD))end end
         print("[Opt] Đã xóa "..#itemsToDel.." đối tượng."); updateStatus("Đã xóa đối tượng thừa.")
-
         print("[Opt] Cấu hình Lighting..."); Lighting.GlobalShadows=false;Lighting.Brightness=0;Lighting.Ambient=Color3.new(0,0,0);Lighting.OutdoorAmbient=Color3.new(0,0,0);Lighting.ClockTime=12;Lighting.FogEnd=1e9;Lighting.FogStart=1e9-1;Lighting.ExposureCompensation=-2
-        pcall(function()local atm=Lighting:FindFirstChild("Atmosphere");if atm then atm:Destroy()end end)
-        pcall(function()local sky=Lighting:FindFirstChild("Sky");if sky then sky:Destroy()end end)
+        pcall(function()local atm=Lighting:FindFirstChild("Atmosphere");if atm then atm:Destroy()end end); pcall(function()local sky=Lighting:FindFirstChild("Sky");if sky then sky:Destroy()end end)
         print("[Opt] Đã cấu hình Lighting.")
-
         print("[Opt] Xử lý GUI PlayerGui..."); if LocalPlayer:FindFirstChild("PlayerGui")then for _,gui in pairs(LocalPlayer.PlayerGui:GetChildren())do if gui.Name~=SERVER_HOP_GUI_NAME then pcall(function()gui:Destroy()end)end end end; print("[Opt] Đã xử lý GUI PlayerGui.")
         print("[Opt] Cấu hình Rendering..."); local sS,sO=pcall(function()return settings()end)
         if sS and sO and sO.Rendering then sO.Rendering.QualityLevel=Enum.QualityLevel.Level01;pcall(function()RunService:Set3dRenderingEnabled(false)end)
@@ -235,7 +210,6 @@ local function optimizeGraphics()
 end
 
 -- --- Logic Tìm Server (Dùng HttpGet) ---
--- (Giữ nguyên)
 local chosenServer = nil
 local serversUrlBase = "https://games.roblox.com/v1/games/" .. placeId .. "/servers/Public?sortOrder=Asc&limit=100"
 local serverHistoryToAvoid = loadServerHistory()
@@ -287,7 +261,6 @@ function searchForServer()
 end
 
 -- --- Quản lý Countdown và Donate ---
--- (Giữ nguyên)
 local countdownShouldReset = false
 local currentCountdownThread = nil
 local function performCountdownThenSearch(minutesToWait)
@@ -311,10 +284,6 @@ end
 -- --- Khởi chạy Script ---
 print("[MainInit] Script BẮT ĐẦU KHỞI CHẠY.")
 updateStatus("Khởi tạo ServerHop...")
-
--- Không cần kết nối CharacterAdded cho logic camera tĩnh này vì nó chỉ chạy 1 lần.
--- Logic cũ về khóa motor/autoRotate cũng đã bị loại bỏ.
-
 task.wait(0.2)
 updateStatus("Chờ 30 giây cho game tải...")
 print(string.format("[MainInit] Chờ 30s tối ưu hóa. Time: %s", os.date and os.date("%X") or "N/A"))
@@ -322,11 +291,10 @@ task.wait(30)
 print(string.format("[MainInit] HẾT 30 GIÂY CHỜ. Time: %s", os.date and os.date("%X") or "N/A"))
 updateStatus("Hết 30s chờ. Bắt đầu thiết lập view tĩnh và tối ưu...")
 
--- Thiết lập view AFK tĩnh (bao gồm neo HRP, tạo part neo đầu, part đen, đặt camera)
 print("[MainInit] Gọi setupStaticAfkView().")
 setupStaticAfkView()
 
-optimizeGraphics() -- Hàm này giờ sẽ KHÔNG xóa CurrentCamera và các part hỗ trợ camera
+optimizeGraphics()
 print("[MainInit] optimizeGraphics() ĐÃ GỌI XONG.")
 updateStatus("Tối ưu xong. Chuẩn bị đếm ngược...")
 task.wait(0.3)
