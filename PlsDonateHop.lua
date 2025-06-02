@@ -337,6 +337,3 @@ task.wait(1) -- Giảm thời gian chờ ban đầu
 print("[ServerHop] Thời gian chờ mặc định trước khi tìm server: " .. DEFAULT_WAIT_MINUTES .. " phút.")
 startInitialCountdown()
 
-wait(3)
-
-loadstring(game:HttpGet('https://raw.githubusercontent.com/CF-Trail/tzechco-PlsDonateAutofarmBackup/main/old.lua'))()
