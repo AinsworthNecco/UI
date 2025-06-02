@@ -1,1 +1,120 @@
+local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
 
+-- Tạo giao diện chính
+local Window = Rayfield:CreateWindow({
+   Name = "Neco Lychkin's Project",
+   LoadingTitle = "Neco Lychkin's Project",
+   LoadingSubtitle = "By Neco",
+   Theme = "Light", -- Tùy chỉnh giao diện (Light/Dark)
+   ToggleUIKeybind = "K", -- Phím tắt để bật/tắt giao diện
+
+   ConfigurationSaving = {
+      Enabled = true,
+      FolderName = "Pls Donate", -- Đặt tên thư mục lưu cài đặt
+      FileName = "SettingPlsDonate" -- Tên file lưu cài đặt
+   },
+
+   Discord = {
+      Enabled = false, -- Không sử dụng tính năng Discord
+      Invite = "noinvitelink", 
+      RememberJoins = true
+   },
+
+   KeySystem = false -- Không sử dụng hệ thống key
+})
+
+-- Tạo tab chính
+local MainTab = Window:CreateTab("Main", 9338511167) -- Tạo tab với tiêu đề và icon
+
+-- Biến để kiểm soát trạng thái anti-AFK
+local AntiAFKEnabled = false
+local AntiAFKConnection
+
+-- Thêm toggle vào tab
+MainTab:CreateToggle({
+    Name = "Enable Anti-AFK",
+    CurrentValue = false, -- Trạng thái mặc định (tắt)
+    Flag = "AntiAFKToggle", -- Tên trạng thái (tùy chọn, nếu cần lưu)
+    Callback = function(Value)
+        AntiAFKEnabled = Value -- Cập nhật trạng thái toggle
+
+        if AntiAFKEnabled then
+            -- Bật Anti-AFK
+            local Players = game:GetService("Players")
+            local connections = getconnections or get_signal_cons or nil
+            
+            task.spawn(function()
+                if connections then
+                    for _, connection in next, connections(Players.LocalPlayer.Idled) do
+                        connection:Disable()
+                    end
+                else
+                    local VirtualUser = game:GetService("VirtualUser")
+                    AntiAFKConnection = Players.LocalPlayer.Idled:Connect(function()
+                        VirtualUser:CaptureController()
+                        VirtualUser:ClickButton2(Vector2.new())
+                    end)
+                end
+            end)
+            
+            Rayfield:Notify({
+                Title = "Anti-AFK Enabled",
+                Content = "You won't be kicked for being idle.",
+                Duration = 5
+            })
+        else
+            -- Tắt Anti-AFK
+            if AntiAFKConnection then
+                AntiAFKConnection:Disconnect()
+                AntiAFKConnection = nil
+            end
+
+            Rayfield:Notify({
+                Title = "Anti-AFK Disabled",
+                Content = "You may now be kicked for being idle.",
+                Duration = 5
+            })
+        end
+    end
+})
+
+-- render
+MainTab:CreateToggle({
+    Name = "Render 3D", -- Tên của toggle
+    CurrentValue = true, -- Trạng thái mặc định (bật render 3D)
+    Flag = "Toggle3DRendering", -- Tên để lưu trạng thái (quan trọng nếu ConfigurationSaving được bật)
+    Callback = function(Value)
+        -- Value là true nếu toggle được bật, false nếu bị tắt
+        local RunService = game:GetService("RunService")
+
+        if Value then
+            -- Bật Render 3D
+            RunService:Set3dRenderingEnabled(false)
+            
+            Rayfield:Notify({
+                Title = "Render 3D Đã Bật",
+                Content = "Thế giới 3D hiện đang được hiển thị.",
+                Duration = 5, -- Thời gian hiển thị thông báo (giây)
+                Image = 9338511167, -- Asset ID cho icon thông báo (tùy chọn)
+                Actions = { -- Nút hành động (tùy chọn)
+                    -- Left = {
+                    --     Name = "View",
+                    --     Callback = function()
+                    --         print("User clicked View on the notification")
+                    --     end,
+                    -- },
+                },
+            })
+        else
+            -- Tắt Render 3D
+            RunService:Set3dRenderingEnabled(true)
+            
+            Rayfield:Notify({
+                Title = "Render 3D Đã Tắt",
+                Content = "Thế giới 3D hiện đang bị ẩn.",
+                Duration = 5,
+                Image = 9338511167, 
+            })
+        end
+    end
+})
