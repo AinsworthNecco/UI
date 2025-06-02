@@ -2,9 +2,11 @@
 local TeleportService = game:GetService("TeleportService")
 local HttpService = game:GetService("HttpService")
 local Players = game:GetService("Players")
-local RunService = game:GetService("RunService") -- Added RunService
 local LocalPlayer = Players.LocalPlayer
 local CoreGui = game:GetService("CoreGui")
+local Lighting = game:GetService("Lighting") -- Thêm Lighting service
+local SoundService = game:GetService("SoundService") -- Thêm SoundService
+local RunService = game:GetService("RunService") -- Thêm RunService
 
 -- --- Cấu hình Script ---
 local placeId = game.PlaceId
@@ -19,9 +21,9 @@ local baseRetryDelay = 1
 local maxRetryDelay = 16
 
 local SERVER_HISTORY_FILENAME = "server_hop_history.txt"
+local SERVER_HOP_GUI_NAME = "ServerHopStatusGUI" -- Tên GUI để không xóa
 
 -- [[ NEW CONFIG FOR FIXED TEXT SIZE ]]
--- Đặt kích thước chữ cố định bằng pixel.
 local FIXED_TEXT_SIZE = 50 -- Kích thước chữ cố định
 
 -- --- Kiểm tra và gán hàm đọc/ghi file (NẾU CÓ) ---
@@ -38,51 +40,31 @@ end
 
 -- --- UI Chính (Thông báo trạng thái) ---
 local playerGui = LocalPlayer:WaitForChild("PlayerGui")
-local statusScreenGui = playerGui:FindFirstChild("ServerHopStatusGUI")
+local statusScreenGui = playerGui:FindFirstChild(SERVER_HOP_GUI_NAME)
 if statusScreenGui then statusScreenGui:Destroy() end -- Xóa GUI cũ nếu có
 
 statusScreenGui = Instance.new("ScreenGui")
-statusScreenGui.Name = "ServerHopStatusGUI"
+statusScreenGui.Name = SERVER_HOP_GUI_NAME
 statusScreenGui.ResetOnSpawn = false
 statusScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-statusScreenGui.IgnoreGuiInset = true
+statusScreenGui.IgnoreGuiInset = true -- Căn giữa chính xác hơn
 statusScreenGui.Parent = playerGui
-
--- [[ MODIFIED UI: Full-screen black layer ]]
-local blackBackgroundFrame = Instance.new("Frame")
-blackBackgroundFrame.Name = "BlackBackground"
-blackBackgroundFrame.Size = UDim2.new(1, 0, 1, 0) -- Full screen
-blackBackgroundFrame.Position = UDim2.new(0, 0, 0, 0)
-blackBackgroundFrame.AnchorPoint = Vector2.new(0, 0)
-blackBackgroundFrame.BackgroundColor3 = Color3.fromRGB(0, 0, 0) -- Black color
-blackBackgroundFrame.BackgroundTransparency = 0 -- Fully opaque
-blackBackgroundFrame.BorderSizePixel = 0
-blackBackgroundFrame.ZIndex = 1 -- Base layer
-blackBackgroundFrame.Parent = statusScreenGui
 
 local statusTextLabel = Instance.new("TextLabel")
 statusTextLabel.Name = "StatusLabel"
--- Kích thước của label cần đủ lớn cho chữ.
--- Chiều rộng 90% màn hình, chiều cao là kích thước chữ + một chút padding.
 statusTextLabel.Size = UDim2.new(0.9, 0, 0, FIXED_TEXT_SIZE + 20)
-statusTextLabel.Position = UDim2.new(0.5, 0, 0.5, 0) -- Căn giữa màn hình
-statusTextLabel.AnchorPoint = Vector2.new(0.5, 0.5) -- Đặt điểm neo ở giữa label
-statusTextLabel.BackgroundTransparency = 1 -- Nền trong suốt
-
--- Màu chữ hồng neon rực rỡ
-statusTextLabel.TextColor3 = Color3.fromRGB(255, 87, 51) -- Màu Magenta/Fuchsia (Neon Pink)
-
+statusTextLabel.Position = UDim2.new(0.5, 0, 0.5, 0)
+statusTextLabel.AnchorPoint = Vector2.new(0.5, 0.5)
+statusTextLabel.BackgroundTransparency = 1
+statusTextLabel.TextColor3 = Color3.fromRGB(255, 87, 51) -- Neon Pink
 statusTextLabel.Font = Enum.Font.SourceSansSemibold
 statusTextLabel.TextScaled = false
 statusTextLabel.TextSize = FIXED_TEXT_SIZE
-
 statusTextLabel.TextXAlignment = Enum.TextXAlignment.Center
 statusTextLabel.TextYAlignment = Enum.TextYAlignment.Center
-statusTextLabel.TextWrapped = false
-statusTextLabel.ZIndex = 2 -- Ensure text is above the black background
+statusTextLabel.TextWrapped = false -- Không cần wrap cho MM:SS
 statusTextLabel.Parent = statusScreenGui
-
-statusTextLabel.Text = "..." -- Văn bản khởi tạo ngắn gọn
+statusTextLabel.Text = "..." -- Văn bản khởi tạo
 
 local function updateStatus(message)
     print("[ServerHop] " .. message) -- Giữ log console
@@ -129,10 +111,116 @@ local function addJobIdToHistoryAndSave(jobIdToAdd)
     else print("[ServerHop] Lỗi lưu lịch sử: " .. tostring(err)) end
 end
 
+-- --- Script Xóa Hoàn Toàn Đồ Họa Cho Treo Game Roblox ---
+local function removeAllGraphics()
+    local success_pcall, error_pcall = pcall(function()
+        updateStatus("Xóa đồ họa...")
+        task.wait(0.1) -- Cho UI kịp hiển thị
+
+        -- Xóa toàn bộ đồ họa trong Workspace (trừ Terrain, Camera, LocalPlayer character)
+        print("[GraphicsRemover] Bắt đầu xóa đối tượng trong Workspace...")
+        for _, obj in pairs(game.Workspace:GetChildren()) do
+            if not obj:IsA("Terrain") and not obj:IsA("Camera") and obj.Name ~= LocalPlayer.Name then
+                pcall(function() obj:Destroy() end)
+            end
+        end
+        print("[GraphicsRemover] Đã xóa các đối tượng trong Workspace.")
+
+        -- Vô hiệu hóa Lighting
+        print("[GraphicsRemover] Cấu hình Lighting...")
+        Lighting.GlobalShadows = false
+        Lighting.Brightness = 0
+        Lighting.Ambient = Color3.new(0,0,0)
+        Lighting.OutdoorAmbient = Color3.new(0,0,0)
+        Lighting.ClockTime = 12
+        Lighting.FogEnd = 1e9 -- Giảm sương mù tối đa
+        Lighting.FogStart = 1e9 -1
+        Lighting.GeographicLatitude = 0
+        Lighting.ExposureCompensation = -2 -- Giảm độ phơi sáng
+
+        pcall(function() if Lighting:FindFirstChild("Atmosphere") then Lighting.Atmosphere:Destroy() end end)
+        pcall(function() if Lighting:FindFirstChild("Sky") then Lighting.Sky:Destroy() end end)
+        pcall(function() if Lighting:FindFirstChild("Bloom") then Lighting.Bloom.Enabled = false end end)
+        pcall(function() if Lighting:FindFirstChild("Blur") then Lighting.Blur.Enabled = false end end)
+        pcall(function() if Lighting:FindFirstChild("ColorCorrection") then Lighting.ColorCorrection.Enabled = false end end)
+        pcall(function() if Lighting:FindFirstChild("DepthOfField") then Lighting.DepthOfField.Enabled = false end end)
+        pcall(function() if Lighting:FindFirstChild("SunRays") then Lighting.SunRays.Enabled = false end end)
+        print("[GraphicsRemover] Đã cấu hình Lighting.")
+
+        -- Xóa GUI không cần thiết (TRỪ GUI CỦA SERVER HOP)
+        print("[GraphicsRemover] Xóa GUI không cần thiết...")
+        if LocalPlayer:FindFirstChild("PlayerGui") then
+            for _, gui in pairs(LocalPlayer.PlayerGui:GetChildren()) do
+                if gui.Name ~= SERVER_HOP_GUI_NAME then
+                    pcall(function() gui:Destroy() end)
+                end
+            end
+            print("[GraphicsRemover] Đã xóa GUI không cần thiết.")
+        end
+
+        -- Vô hiệu hóa Render
+        print("[GraphicsRemover] Cấu hình Rendering...")
+        local settingsAccessible = pcall(function() return settings() end)
+        if settingsAccessible and settings().Rendering then
+            settings().Rendering.QualityLevel = Enum.QualityLevel.Level01
+             -- Cố gắng tắt hoàn toàn render 3D. Có thể không hoạt động trong mọi executor.
+            local renderDisabledSuccess = pcall(function() RunService:Set3dRenderingEnabled(false) end)
+            if renderDisabledSuccess then
+                 print("[GraphicsRemover] Đã cố gắng tắt 3D rendering.")
+            else
+                 print("[GraphicsRemover] Không thể gọi Set3dRenderingEnabled(false).")
+            end
+        else
+            print("[GraphicsRemover] Không thể truy cập settings().Rendering hoặc settings() không tồn tại.")
+        end
+        print("[GraphicsRemover] Đã cấu hình Rendering.")
+
+
+        -- Tắt toàn bộ âm thanh
+        print("[GraphicsRemover] Tắt âm thanh...")
+        SoundService.RespectFilteringEnabled = true
+        SoundService.AmbientReverb = Enum.ReverbType.NoReverb
+        SoundService.DopplerScale = 0
+        SoundService.DistanceFactor = 0
+
+        for _, sound in pairs(game:GetDescendants()) do
+            if sound:IsA("Sound") then
+                pcall(function()
+                    sound.Playing = false
+                    sound:Stop()
+                    sound.Volume = 0
+                    sound.PlaybackSpeed = 0
+                end)
+            end
+        end
+        print("[GraphicsRemover] Đã tắt âm thanh.")
+
+        -- Ngăn chặn các đối tượng mới được thêm vào Workspace (CẨN THẬN KHI KÍCH HOẠT)
+        -- Điều này có thể phá game nếu game cần tạo part/model tạm thời.
+        -- Bỏ comment khối dưới đây nếu bạn muốn thử nghiệm.
+        --[[
+        print("[GraphicsRemover] Kích hoạt ngăn chặn đối tượng mới trong Workspace (CÓ THỂ GÂY LỖI GAME).")
+        game.Workspace.DescendantAdded:Connect(function(obj)
+            if not obj:IsA("Camera") and (not obj:IsA("Model") or obj.Name ~= LocalPlayer.Name) then
+                task.wait() -- Cho phép game xử lý frame hiện tại trước khi xóa
+                pcall(function() obj:Destroy() end)
+                print("[GraphicsRemover] Đã tự động xóa đối tượng mới: " .. obj.Name)
+            end
+        end)
+        --]]
+
+        updateStatus("Đồ họa đã được tối ưu hóa.")
+        print("[GraphicsRemover] Đã xóa/tối ưu hóa đồ họa. Hệ thống sẵn sàng treo game.")
+    end)
+    if not success_pcall then
+        warn("[GraphicsRemover] Lỗi khi thực hiện removeAllGraphics: " .. tostring(error_pcall))
+        updateStatus("Lỗi xóa đồ họa.")
+    end
+end
 -- --- Logic Tìm Server ---
 local chosenServer = nil
 local serversUrlBase = "https://games.roblox.com/v1/games/" .. placeId .. "/servers/Public?sortOrder=Asc&limit=100"
-local serverHistoryToAvoid = loadServerHistory()
+local serverHistoryToAvoid = loadServerHistory() -- Load lịch sử sớm
 
 local function listServers(cursor)
     local requestUrl = serversUrlBase
@@ -154,9 +242,8 @@ function searchForServer()
     chosenServer = nil
     while searchLoopActive and not chosenServer do
         local currentNextCursorForFullScan = nil
-        local currentRetryDelaySearch = baseRetryDelay
         updateStatus("Quét server...")
-        
+
         local allPagesScannedForThisRound = false
         while not allPagesScannedForThisRound and not chosenServer do
             local pageScanAttempts = 0
@@ -204,9 +291,13 @@ function searchForServer()
                                 chosenServer = pageSuitableServers[math.random(1, #pageSuitableServers)]
                                 allPagesScannedForThisRound = true
                                 break
+                            else
+                                -- updateStatus("Không có server phù hợp trang này.")
                             end
+                        else
+                            -- updateStatus("Trang này không có server.")
                         end
-                        
+
                         if not chosenServer then
                             currentNextCursorForFullScan = serverListData.nextPageCursor
                             if not currentNextCursorForFullScan then
@@ -220,10 +311,8 @@ function searchForServer()
                         if not currentNextCursorForFullScan then allPagesScannedForThisRound = true end
                     end
                 else
-                    local errorMessage = tostring(dataOrError) -- Ensure it's a string
-                    -- Check if 'tissus' is a defined library or if it was a typo for 'string'
-                    -- Assuming 'string.sub' was intended for robust error message shortening
-                    local shortError = #errorMessage > 20 and (string.sub(errorMessage, 1, 20) .. "...") or errorMessage
+                    local errorMessageStr = tostring(dataOrError)
+                    local shortError = #errorMessageStr > 30 and (string.sub(errorMessageStr, 1, 30) .. "...") or errorMessageStr
                     updateStatus("Lỗi API: " .. shortError)
                     if pageScanAttempts >= maxPageScanAttempts then
                         updateStatus("Lỗi lấy trang. Bỏ qua.")
@@ -239,32 +328,35 @@ function searchForServer()
         end
 
         if chosenServer then
+            local shortId = chosenServer.id and string.sub(tostring(chosenServer.id), 1, 8) or "N/A"
             updateStatus(string.format("CHỌN SERVER! ID: %s (%d/%d)",
-                chosenServer.id:sub(1,8), chosenServer.playing, chosenServer.maxPlayers))
+                shortId, chosenServer.playing or 0, chosenServer.maxPlayers or 0))
             searchLoopActive = false
         elseif allPagesScannedForThisRound then
-                updateStatus(string.format("Không tìm thấy. Chờ %ds quét lại...", waitTimeBetweenFullScans))
-                task.wait(waitTimeBetweenFullScans)
+            updateStatus(string.format("Không tìm thấy. Chờ %ds quét lại...", waitTimeBetweenFullScans))
+            task.wait(waitTimeBetweenFullScans)
         end
-            if not searchLoopActive then break end
+        if not searchLoopActive then break end
     end
 
     if chosenServer then
         updateStatus("Dịch chuyển...")
-        addJobIdToHistoryAndSave(currentJobId)
+        addJobIdToHistoryAndSave(currentJobId) -- Lưu server hiện tại TRƯỚC khi dịch chuyển
         task.wait(2)
-        
+
         local success_tp, err_tp = pcall(function()
             TeleportService:TeleportToPlaceInstance(placeId, chosenServer.id, LocalPlayer)
         end)
-        
+
         if not success_tp then
-            local errorMsgTp = tostring(err_tp)
-            local shortErrorTp = #errorMsgTp > 20 and (string.sub(errorMsgTp, 1, 20) .. "...") or errorMsgTp
+            local errorTpStr = tostring(err_tp)
+            local shortErrorTp = #errorTpStr > 30 and (string.sub(errorTpStr, 1, 30) .. "...") or errorTpStr
             updateStatus("Dịch chuyển lỗi: " .. shortErrorTp)
+            serverHistoryToAvoid[chosenServer.id] = true -- Thêm server lỗi vào danh sách tránh tạm thời cho phiên này
+            print("[ServerHop] Đã thêm server lỗi dịch chuyển ("..tostring(chosenServer.id)..") vào danh sách tránh tạm thời.")
             chosenServer = nil
             task.wait(5)
-            searchForServer()
+            searchForServer() -- Thử tìm lại
         end
     else
         updateStatus("Không tìm thấy server. Dừng.")
@@ -283,21 +375,20 @@ local function performCountdownThenSearch(minutesToWait)
 
     local totalWaitSeconds = minutesToWait * 60
     print(string.format("[ServerHop] Đã đặt giờ! Bắt đầu tìm server sau: %d phút %d giây...", math.floor(totalWaitSeconds / 60), totalWaitSeconds % 60))
-    
+
     for i = totalWaitSeconds, 0, -1 do
         if countdownShouldReset then
             countdownShouldReset = false
             updateStatus("Donate! Reset đếm ngược.")
-            performCountdownThenSearch(DEFAULT_WAIT_MINUTES)
+            startInitialCountdown() -- Gọi lại hàm khởi tạo để reset đúng cách bằng coroutine mới
             return
         end
         local minutesLeft = math.floor(i / 60)
         local secondsLeft = i % 60
-        
+
         if statusTextLabel and statusTextLabel.Parent then
             statusTextLabel.Text = string.format("%02d:%02d", minutesLeft, secondsLeft)
         end
-        
         task.wait(1)
     end
 
@@ -307,50 +398,51 @@ end
 
 local function startInitialCountdown()
     if currentCountdownThread and coroutine.status(currentCountdownThread) ~= "dead" then
-        coroutine.close(currentCountdownThread)
+        pcall(coroutine.close, currentCountdownThread)
+        print("[ServerHop] Đã cố gắng đóng coroutine đếm ngược cũ.")
     end
     currentCountdownThread = coroutine.create(function()
-        performCountdownThenSearch(DEFAULT_WAIT_MINUTES)
+        local success, err = pcall(performCountdownThenSearch, DEFAULT_WAIT_MINUTES)
+        if not success then
+            warn("[ServerHop] Lỗi trong coroutine đếm ngược: " .. tostring(err))
+            updateStatus("Lỗi coroutine. Thử lại...")
+            task.wait(5)
+            startInitialCountdown() -- Thử khởi động lại nếu coroutine bị lỗi
+        end
     end)
     coroutine.resume(currentCountdownThread)
 end
 
 -- --- Xử lý sự kiện Donate ---
--- Assuming 'leaderstats' and 'Raised' are correctly set up elsewhere for the LocalPlayer
-pcall(function() -- Wrap in pcall in case leaderstats or Raised are not immediately available
-    local leaderstats = LocalPlayer:WaitForChild("leaderstats")
+local leaderstats = LocalPlayer:WaitForChild("leaderstats")
+if leaderstats then
     local raisedValueObject = leaderstats:WaitForChild("Raised")
-    local lastRaisedValue = raisedValueObject.Value
+    if raisedValueObject then
+        local lastRaisedValue = raisedValueObject.Value
 
-    raisedValueObject.Changed:Connect(function(newRaisedAmount)
-        if newRaisedAmount > lastRaisedValue then
-            updateStatus(string.format("Donate! Raised: %d -> %d", lastRaisedValue, newRaisedAmount))
-            lastRaisedValue = newRaisedAmount
-            
-            countdownShouldReset = true
-            
-            print("[ServerHop] Cờ reset đã được đặt do có donate.")
-        end
-    end)
-end)
+        raisedValueObject.Changed:Connect(function(newRaisedAmount)
+            if newRaisedAmount > lastRaisedValue then
+                updateStatus(string.format("Donate! Raised: %.0f -> %.0f", lastRaisedValue, newRaisedAmount)) -- Sử dụng %.0f cho số
+                lastRaisedValue = newRaisedAmount
+                countdownShouldReset = true
+                print("[ServerHop] Cờ reset đã được đặt do có donate.")
+            end
+        end)
+    else
+        print("[ServerHop] Không tìm thấy 'Raised' trong leaderstats.")
+    end
+else
+    print("[ServerHop] Không tìm thấy 'leaderstats' cho LocalPlayer.")
+end
 
 
 -- --- Khởi chạy Script ---
+updateStatus("Khởi tạo ServerHop...")
+task.wait(0.2) -- Thời gian chờ ngắn cho UI
 
--- Disable 3D rendering and set FPS cap
--- Note: setfpscap might be a debug-only function or specific to certain exploiters.
--- If it's not standard, this line might error or do nothing in a regular environment.
-pcall(function()
-    RunService:Set3dRenderingEnabled(false)
-    if setfpscap then -- Check if setfpscap exists
-        setfpscap(5)
-        print("[ServerHop] 3D Rendering Disabled. FPS Cap set to 5.")
-    else
-        print("[ServerHop] 3D Rendering Disabled. 'setfpscap' not available.")
-    end
-end)
+-- Gọi hàm xóa đồ họa ở đây, sau khi UI đã được tạo và trước khi bắt đầu logic chính
+removeAllGraphics()
+task.wait(0.3) -- Cho phép các thay đổi đồ họa được áp dụng và UI cập nhật
 
-updateStatus("...") -- Văn bản khởi tạo ngắn gọn
-task.wait(1) -- Giảm thời gian chờ ban đầu
 print("[ServerHop] Thời gian chờ mặc định trước khi tìm server: " .. DEFAULT_WAIT_MINUTES .. " phút.")
 startInitialCountdown()
