@@ -63,7 +63,7 @@ statusTextLabel.AnchorPoint = Vector2.new(0.5, 0.5) -- Đặt điểm neo ở gi
 statusTextLabel.BackgroundTransparency = 1 -- Nền trong suốt
 
 -- Màu chữ hồng neon rực rỡ
-statusTextLabel.TextColor3 = Color3.fromRGB(255, 0, 255) -- Màu Magenta/Fuchsia (Neon Pink)
+statusTextLabel.TextColor3 = Color3.fromRGB(255, 87, 51) -- Màu Magenta/Fuchsia (Neon Pink)
 -- Hoặc thử: Color3.fromRGB(255, 87, 51) -- HotPink
 -- Hoặc: Color3.fromRGB(255, 20, 147) -- DeepPink
 
