@@ -1,1 +1,152 @@
+#!/data/data/com.termux/files/usr/bin/bash
 
+# --SETTINGS--
+Instances=2
+Rejoin=true
+RejoinTime=5 # Thoi gian Rejoin (tinh bang PHUT)
+StartupTime=10 # Thoi gian cho giua moi lan mo Roblox (tinh bang GIAY)
+RobloxPackSuffixes="b c d"
+GameUrl="https://www.roblox.com/games/8737602449/PLS-DONATE" # URL cua game Roblox de tham gia
+BasePackageName="com.roblox.clien"
+
+#-----------------------------------------------------------------------
+# KET THUC PHAN CAU HINH
+#-----------------------------------------------------------------------
+
+declare -a FullRobloxPackages=()
+
+generateFullPackageNames() {
+    local suffixes_array=($RobloxPackSuffixes)
+    for suffix in "${suffixes_array[@]}"; do
+        if [[ -n "$suffix" ]]; then
+            FullRobloxPackages+=("${BasePackageName}${suffix}")
+        fi
+    done
+    if [ ${#FullRobloxPackages[@]} -eq 0 ]; then
+        exit 1
+    fi
+}
+
+checkPackageExists() {
+    pm list packages | grep -q "$1"
+}
+
+isRunning() {
+    pidof "$1" > /dev/null 2>&1
+}
+
+openRobloxInstance() {
+    local selectedClient="$1"
+    if ! checkPackageExists "$selectedClient"; then
+        return 1
+    fi
+
+    if isRunning "$selectedClient"; then
+        : 
+        am start -a android.intent.action.VIEW -d "$GameUrl" -p "$selectedClient"
+        sleep "$StartupTime" 
+    else
+        am start -a android.intent.action.VIEW -d "$GameUrl" -p "$selectedClient"
+        sleep "$StartupTime"
+    fi
+}
+
+forceCloseAllInstances() {
+    local countToManage=$Instances
+    if ((${#FullRobloxPackages[@]} < Instances)); then
+        countToManage=${#FullRobloxPackages[@]}
+    fi
+
+    for ((i=0; i<countToManage; i++)); do
+        local package_to_close="${FullRobloxPackages[$i]}"
+        if checkPackageExists "$package_to_close"; then
+            if isRunning "$package_to_close"; then
+                su -c "am force-stop $package_to_close"
+            fi
+        fi
+    done
+    sleep 3
+}
+
+runInstances() {
+    local opened_count=0
+    local attempted_count=0
+    
+    for ((i=0; i<${#FullRobloxPackages[@]}; i++)); do
+        if ((opened_count >= Instances)); then
+            break
+        fi
+        
+        ((attempted_count++))
+        openRobloxInstance "${FullRobloxPackages[$i]}"
+        ((opened_count++)) 
+    done
+}
+
+continuousRejoinLoop() {
+    local rejoin_time_seconds=$((RejoinTime * 60))
+
+    if ((rejoin_time_seconds <= 0)); then
+        exit 1
+    fi
+
+    while true; do
+        forceCloseAllInstances
+        runInstances
+        
+        local slept_time=0
+        while ((slept_time < rejoin_time_seconds)); do
+            local remaining_sleep=$((rejoin_time_seconds - slept_time))
+            local sleep_chunk=60
+            
+            if ((remaining_sleep < sleep_chunk)); then
+                sleep_chunk=$remaining_sleep
+            fi
+            
+            if ((sleep_chunk <=0)); then 
+                break 
+            fi
+            sleep $sleep_chunk
+            slept_time=$((slept_time + sleep_chunk))
+        done
+    done
+}
+
+# Kiem tra cau hinh
+if ! [[ "$Instances" =~ ^[1-9][0-9]*$ ]] || (( Instances <= 0 )); then
+    exit 1
+fi
+
+if [[ "$Rejoin" != "true" ]] && [[ "$Rejoin" != "false" ]]; then
+    exit 1
+fi
+
+if [[ "$Rejoin" == "true" ]]; then
+    if ! [[ "$RejoinTime" =~ ^[1-9][0-9]*$ ]] || (( RejoinTime <= 0 )); then
+        exit 1
+    fi
+fi
+
+if ! [[ "$StartupTime" =~ ^[0-9]+$ ]] || (( StartupTime < 0 )); then
+    exit 1
+fi
+
+if [[ -z "$RobloxPackSuffixes" ]]; then
+    exit 1
+fi
+
+if [[ -z "$GameUrl" ]]; then 
+    exit 1
+fi
+
+generateFullPackageNames
+
+# Chay logic chinh
+if [[ "$Rejoin" == "true" ]]; then
+    continuousRejoinLoop
+else
+    forceCloseAllInstances
+    runInstances
+fi
+
+exit 0
