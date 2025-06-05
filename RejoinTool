@@ -6,6 +6,8 @@ Rejoin=true
 RejoinTime=5 # Thoi gian Rejoin (tinh bang PHUT)
 StartupTime=10 # Thoi gian cho giua moi lan mo Roblox (tinh bang GIAY)
 RobloxPackSuffixes="b c d"
+# Thu nghiem voi dinh dang URL nay neu cach cu khong on dinh sau khi sua loi khac:
+# GameUrl="roblox://placeId=8737602449" 
 GameUrl="https://www.roblox.com/games/8737602449/PLS-DONATE" # URL cua game Roblox de tham gia
 BasePackageName="com.roblox.clien"
 
@@ -28,27 +30,26 @@ generateFullPackageNames() {
 }
 
 checkPackageExists() {
-    pm list packages | grep -q "$1"
-}
-
-isRunning() {
-    pidof "$1" > /dev/null 2>&1
+    local pkg_path
+    # Su dung 'pm path' de kiem tra. Lenh nay se in ra duong dan neu package ton tai.
+    # 2>/dev/null de an loi neu package khong ton tai.
+    pkg_path=$(pm path "$1" 2>/dev/null)
+    if [[ -n "$pkg_path" ]]; then
+        return 0 # Ton tai
+    else
+        return 1 # Khong ton tai
+    fi
 }
 
 openRobloxInstance() {
     local selectedClient="$1"
     if ! checkPackageExists "$selectedClient"; then
-        return 1
+        return 1 # Package khong tim thay
     fi
 
-    if isRunning "$selectedClient"; then
-        : 
-        am start -a android.intent.action.VIEW -d "$GameUrl" -p "$selectedClient"
-        sleep "$StartupTime" 
-    else
-        am start -a android.intent.action.VIEW -d "$GameUrl" -p "$selectedClient"
-        sleep "$StartupTime"
-    fi
+    # Luon co gang mo/dua len phia truoc va truyen intent vao game
+    am start -a android.intent.action.VIEW -d "$GameUrl" -p "$selectedClient"
+    sleep "$StartupTime"
 }
 
 forceCloseAllInstances() {
@@ -60,9 +61,9 @@ forceCloseAllInstances() {
     for ((i=0; i<countToManage; i++)); do
         local package_to_close="${FullRobloxPackages[$i]}"
         if checkPackageExists "$package_to_close"; then
-            if isRunning "$package_to_close"; then
-                su -c "am force-stop $package_to_close"
-            fi
+            # Co gang force-stop neu package ton tai.
+            # Thanh cong phu thuoc vao root va 'su' co hoat dong trong VMOS khong.
+            su -c "am force-stop $package_to_close"
         fi
     done
     sleep 3
@@ -70,14 +71,14 @@ forceCloseAllInstances() {
 
 runInstances() {
     local opened_count=0
-    local attempted_count=0
+    # local attempted_count=0 # Khong con duoc su dung nua
     
     for ((i=0; i<${#FullRobloxPackages[@]}; i++)); do
         if ((opened_count >= Instances)); then
             break
         fi
         
-        ((attempted_count++))
+        # ((attempted_count++)) # Khong con duoc su dung nua
         openRobloxInstance "${FullRobloxPackages[$i]}"
         ((opened_count++)) 
     done
