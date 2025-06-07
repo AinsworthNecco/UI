@@ -1,3 +1,8 @@
+-- =========================================================================================
+--                                   SCRIPT AFK & SERVER HOP
+--                                        PHIÊN BẢN CUỐI CÙNG
+-- =========================================================================================
+
 -- Các service cần thiết
 local TeleportService = game:GetService("TeleportService")
 local HttpService = game:GetService("HttpService")
@@ -37,11 +42,12 @@ local SETTINGS = {
     -- Cài đặt AFK & Tối ưu
     enableSafePlatform = true,          -- true: Tạo platform an toàn khi AFK. false: Không tạo.
     enableStaticAfkView = true,         -- true: Thiết lập camera tĩnh nhìn vào màn hình đen khi AFK. false: Không thay đổi camera.
-    enableGraphicsOptimization = true,  -- true: Tối ưu hóa đồ họa (xóa vật thể, giảm chất lượng...). false: Không tối ưu.
+    enableGraphicsOptimization = true,  -- true: Tối ưu hóa đồ họa khác (xóa vật thể, ánh sáng...). false: Không tối ưu.
+    enableAutoSetLowestGraphics = true, -- [[ MỚI ]] true: Tự động đặt đồ họa xuống mức thấp nhất khi chạy script. false: Không tự động thay đổi.
     
     -- Cài đặt Giới hạn FPS
     enableFpsLimiter = true,            -- true: BẬT tính năng giới hạn FPS. false: TẮT, game sẽ chạy ở FPS mặc định.
-    targetFps = 5,                      -- FPS mục tiêu NẾU `enableFpsLimiter` là true.
+    targetFps = 4,                      -- FPS mục tiêu NẾU `enableFpsLimiter` là true.
 
     -- Cài đặt Lịch sử Server
     enableFileHistory = true,           -- true: Sử dụng file để lưu và tránh các server đã vào. false: Không dùng file.
@@ -53,7 +59,7 @@ local SETTINGS = {
 }
 -- --- Kết thúc Setting ---
 
--- --- Kiểm tra và gán hàm đọc/ghi file (NẾU CÓ và được Setting cho phép) ---
+-- --- Kiểm tra và gán hàm đọc/ghi file ---
 local canAccessFiles = false
 local writefile_func, readfile_func
 
@@ -158,8 +164,9 @@ local function setupStaticAfkView()
     local camera = workspace.CurrentCamera
     camera.CameraType = Enum.CameraType.Scriptable
     
-    local blackScreen = Instance.new("Part", workspace)
-    blackScreen.Name = "AFK_BlackScreen"
+    local blackScreen = workspace:FindFirstChild(STATIC_BLACK_SCREEN_PART_NAME) or Instance.new("Part")
+    blackScreen.Name = STATIC_BLACK_SCREEN_PART_NAME
+    blackScreen.Parent = workspace
     blackScreen.Anchored = true
     blackScreen.Size = Vector3.new(10, 10, 1)
     blackScreen.Color = Color3.new(0, 0, 0)
@@ -169,14 +176,14 @@ local function setupStaticAfkView()
 end
 
 local function optimizeGraphics()
-    updateStatus("Bắt đầu tối ưu đồ họa...")
+    updateStatus("Bắt đầu tối ưu đồ họa phụ...")
     -- Tối ưu Lighting
     Lighting.GlobalShadows = false
     Lighting.Brightness = 0
     Lighting.Ambient = Color3.new(0,0,0)
     Lighting.OutdoorAmbient = Color3.new(0,0,0)
-    pcall(function() Lighting.Atmosphere:Destroy() end)
-    pcall(function() Lighting.Sky:Destroy() end)
+    pcall(function() if Lighting:FindFirstChild("Atmosphere") then Lighting.Atmosphere:Destroy() end end)
+    pcall(function() if Lighting:FindFirstChild("Sky") then Lighting.Sky:Destroy() end end)
 
     -- Tắt âm thanh
     SoundService.AmbientReverb = Enum.ReverbType.NoReverb
@@ -187,11 +194,34 @@ local function optimizeGraphics()
     end
     -- Tắt 3D rendering nếu có thể (tùy executor)
     pcall(function() if RunService:IsClient() then RunService:Set3dRenderingEnabled(false) end end)
-    updateStatus("Đồ họa đã được tối ưu.")
+    updateStatus("Đã tối ưu đồ họa phụ.")
 end
 
+-- --- Hàm Tự Động Đặt Đồ Họa Thấp Nhất ---
+local function autoSetLowestGraphics()
+    updateStatus("Kiểm tra cài đặt đồ họa...")
+    local success, settingsSvc = pcall(settings) -- settings() là hàm global, dùng pcall cho an toàn
+
+    if success and settingsSvc and settingsSvc.Rendering then
+        local currentLevel = settingsSvc.Rendering.QualityLevel
+        print("[Graphics] Mức đồ họa hiện tại: " .. tostring(currentLevel))
+
+        if currentLevel ~= Enum.QualityLevel.Level01 then
+            print("[Graphics] Đồ họa chưa ở mức thấp nhất. Đang đặt thành Level 1...")
+            updateStatus("Tự động hạ đồ họa...")
+            settingsSvc.Rendering.QualityLevel = Enum.QualityLevel.Level01
+            task.wait(0.1) -- Chờ một chút để setting áp dụng
+            print("[Graphics] Đồ họa đã được đặt thành Level 1.")
+        else
+            print("[Graphics] Đồ họa đã ở mức thấp nhất. Bỏ qua.")
+        end
+    else
+        warn("[Graphics] Không thể truy cập dịch vụ settings().Rendering để thay đổi đồ họa.")
+    end
+end
+
+
 -- --- Hàm Thiết Lập Giới Hạn FPS ---
--- [[ SỬA ĐỔI ]] Sử dụng lại "cách nguyên thủy" theo yêu cầu
 local function applyFpsCap()
     if SETTINGS.enableFpsLimiter and SETTINGS.targetFps and type(SETTINGS.targetFps) == "number" and SETTINGS.targetFps > 0 then
         
@@ -215,19 +245,123 @@ end
 
 -- --- Logic Tìm Server ---
 local function searchForServer()
-    -- ... (Hàm này giữ nguyên logic phức tạp của bạn)
+    if not SETTINGS.enableFileHistory then serverHistoryCache = {}
+    elseif not next(serverHistoryCache) then loadServerHistory() end
+
+    local historyCount = 0; for _ in pairs(serverHistoryCache) do historyCount = historyCount + 1 end
+    
+    if not SETTINGS.enableJoinOldServer and SETTINGS.enableFileHistory then
+        updateStatus(string.format("Tìm server (%.0f%%-%.0f%%). Tránh %d.", minPlayerPercentage*100, maxPlayerPercentageLimit*100, historyCount+1))
+    else
+        updateStatus(string.format("Tìm server (%.0f%%-%.0f%%).", minPlayerPercentage*100, maxPlayerPercentageLimit*100))
+    end
+
+    local chosenServer = nil
+    while not chosenServer do
+        local nextCursor
+        local hasNextPage = true
+        while hasNextPage and not chosenServer do
+            local requestUrl = "https://games.roblox.com/v1/games/" .. placeId .. "/servers/Public?sortOrder=Asc&limit=100" .. (nextCursor and "&cursor="..nextCursor or "")
+            local success, response = pcall(function() return HttpService:JSONDecode(game:HttpGet(requestUrl, true)) end)
+
+            if success and response.data then
+                local suitableServers = {}
+                for _, serverInfo in ipairs(response.data) do
+                    local isVisited = serverHistoryCache[serverInfo.id]
+                    local shouldAvoid = serverInfo.id == currentJobId or (isVisited and not SETTINGS.enableJoinOldServer)
+                    if not shouldAvoid and serverInfo.playing and serverInfo.maxPlayers and serverInfo.maxPlayers > 0 then
+                        local playerRatio = serverInfo.playing / serverInfo.maxPlayers
+                        if playerRatio >= minPlayerPercentage and playerRatio < maxPlayerPercentageLimit and serverInfo.playing < serverInfo.maxPlayers then
+                            table.insert(suitableServers, serverInfo)
+                        end
+                    end
+                end
+
+                if #suitableServers > 0 then
+                    chosenServer = suitableServers[math.random(1, #suitableServers)]
+                    break
+                end
+                
+                nextCursor = response.nextPageCursor
+                hasNextPage = nextCursor ~= nil
+                task.wait(waitTimeBetweenPageFetches)
+            else
+                task.wait(baseRetryDelay)
+                hasNextPage = false -- Dừng quét nếu có lỗi API
+            end
+        end
+
+        if not chosenServer then
+            updateStatus("Không tìm thấy server phù hợp, chờ quét lại...")
+            task.wait(waitTimeBetweenFullScans)
+        end
+    end
+
+    updateStatus("Đang dịch chuyển đến server mới...")
+    addJobIdToHistoryAndSave(currentJobId)
+    task.wait(1)
+    pcall(TeleportService.TeleportToPlaceInstance, TeleportService, placeId, chosenServer.id, LocalPlayer)
 end
 
 -- --- Quản lý Countdown ---
+local currentCountdownThread = nil
+local function performCountdownThenSearch(minutesToWait)
+    if not minutesToWait or minutesToWait <= 0 then searchForServer(); return end
+    local countdownShouldReset = false
+    
+    local connection 
+    if SETTINGS.enableDonateResetCountdown then
+        pcall(function()
+            local leaderstats = LocalPlayer:WaitForChild("leaderstats", 15)
+            local raised = leaderstats:WaitForChild("Raised", 15)
+            local lastRaised = raised.Value
+            connection = raised.Changed:Connect(function(newRaised)
+                if newRaised > lastRaised then
+                    lastRaised = newRaised
+                    countdownShouldReset = true
+                end
+            end)
+        end)
+    end
+
+    for i = minutesToWait * 60, 0, -1 do
+        if countdownShouldReset then
+            if connection then connection:Disconnect() end
+            updateStatus("Donate! Reset đếm ngược...")
+            task.wait(2)
+            startInitialCountdown()
+            return
+        end
+        updateStatus(string.format("Tìm server sau: %02d:%02d", math.floor(i/60), i%60))
+        task.wait(1)
+    end
+
+    if connection then connection:Disconnect() end
+    searchForServer()
+end
+
 local function startInitialCountdown()
-    -- ... (Hàm này giữ nguyên logic phức tạp của bạn)
+    if currentCountdownThread and coroutine.status(currentCountdownThread) ~= "dead" then
+        coroutine.close(currentCountdownThread)
+    end
+    currentCountdownThread = coroutine.create(function() 
+        pcall(performCountdownThenSearch, DEFAULT_WAIT_MINUTES)
+    end)
+    coroutine.resume(currentCountdownThread)
 end
 
 -- --- Khởi chạy Script ---
 updateStatus("Khởi tạo...")
 
 -- Áp dụng giới hạn FPS NGAY LẬP TỨC để giảm tải CPU trong lúc chờ
-applyFpsCap()
+if SETTINGS.enableFpsLimiter then
+    applyFpsCap()
+end
+
+-- Tự động đặt đồ họa về mức thấp nhất nếu được bật
+if SETTINGS.enableAutoSetLowestGraphics then
+    autoSetLowestGraphics()
+end
 
 updateStatus("Chờ 10 giây cho game tải...")
 task.wait(10)
@@ -249,7 +383,7 @@ if SETTINGS.enableServerHopLogic then
     updateStatus("Chuẩn bị tìm server...")
     startInitialCountdown()
 else
-    updateStatus("Treo máy tại server hiện tại.")
+    updateStatus("Treo máy tại server hiện tại. Logic tìm server TẮT.")
 end
 
 print("[MainInit] Script đã hoàn tất khởi chạy chính.")
