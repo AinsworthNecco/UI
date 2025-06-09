@@ -1,12 +1,12 @@
 #!/data/data/com.termux/files/usr/bin/bash
 
 # --SETTINGS--
-Instances=2
-Rejoin=true
-RejoinTime=5
-StartupTime=10
+Instances=4
+Rejoin=false # <--- THAY DOI 1: Dat la 'false' de chay mot lan khi webhook kich hoat
+RejoinTime=5 # Thoi gian Rejoin (tinh bang PHUT)
+StartupTime=20 # Thoi gian cho giua moi lan mo Roblox (tinh bang GIAY)
 RobloxPackSuffixes="b c d"
-VipServerUrl="https://www.roblox.com/share?code=401cf562425a5b46b43cd58bb546d061&type=Server"
+GameUrl="https://www.roblox.com/games/8737602449/PLS-DONATE"
 BasePackageName="com.roblox.clien"
 
 #-----------------------------------------------------------------------
@@ -28,11 +28,13 @@ generateFullPackageNames() {
 }
 
 checkPackageExists() {
-    pm list packages | grep -q "$1"
-}
-
-isRunning() {
-    pidof "$1" > /dev/null 2>&1
+    local pkg_path
+    pkg_path=$(pm path "$1" 2>/dev/null)
+    if [[ -n "$pkg_path" ]]; then
+        return 0
+    else
+        return 1
+    fi
 }
 
 openRobloxInstance() {
@@ -40,13 +42,8 @@ openRobloxInstance() {
     if ! checkPackageExists "$selectedClient"; then
         return 1
     fi
-
-    if isRunning "$selectedClient"; then
-        : # Da dang chay, khong lam gi them
-    else
-        am start -a android.intent.action.VIEW -d "$VipServerUrl" -p "$selectedClient"
-        sleep "$StartupTime"
-    fi
+    am start -a android.intent.action.VIEW -d "$GameUrl" -p "$selectedClient"
+    sleep "$StartupTime"
 }
 
 forceCloseAllInstances() {
@@ -58,9 +55,8 @@ forceCloseAllInstances() {
     for ((i=0; i<countToManage; i++)); do
         local package_to_close="${FullRobloxPackages[$i]}"
         if checkPackageExists "$package_to_close"; then
-            if isRunning "$package_to_close"; then
-                su -c "am force-stop $package_to_close"
-            fi
+            # THAY DOI 2: Bo 'su -c' vi toan bo script da duoc webhook server goi voi quyen root
+            am force-stop "$package_to_close"
         fi
     done
     sleep 3
@@ -68,41 +64,32 @@ forceCloseAllInstances() {
 
 runInstances() {
     local opened_count=0
-    local attempted_count=0
-    
     for ((i=0; i<${#FullRobloxPackages[@]}; i++)); do
         if ((opened_count >= Instances)); then
             break
         fi
-        
-        ((attempted_count++))
         openRobloxInstance "${FullRobloxPackages[$i]}"
-        ((opened_count++)) 
+        ((opened_count++))
     done
 }
 
 continuousRejoinLoop() {
     local rejoin_time_seconds=$((RejoinTime * 60))
-
     if ((rejoin_time_seconds <= 0)); then
         exit 1
     fi
-
     while true; do
         forceCloseAllInstances
         runInstances
-        
         local slept_time=0
         while ((slept_time < rejoin_time_seconds)); do
             local remaining_sleep=$((rejoin_time_seconds - slept_time))
             local sleep_chunk=60
-            
             if ((remaining_sleep < sleep_chunk)); then
                 sleep_chunk=$remaining_sleep
             fi
-            
-            if ((sleep_chunk <=0)); then 
-                break 
+            if ((sleep_chunk <=0)); then
+                break
             fi
             sleep $sleep_chunk
             slept_time=$((slept_time + sleep_chunk))
@@ -110,41 +97,16 @@ continuousRejoinLoop() {
     done
 }
 
-# Kiem tra cau hinh
-if ! [[ "$Instances" =~ ^[1-9][0-9]*$ ]] || (( Instances <= 0 )); then
-    exit 1
-fi
+# --- Phan logic chinh va kiem tra cau hinh ---
+if ! [[ "$Instances" =~ ^[1-9][0-9]*$ ]] || (( Instances <= 0 )); then exit 1; fi
+if [[ "$Rejoin" != "true" ]] && [[ "$Rejoin" != "false" ]]; then exit 1; fi
+if [[ "$Rejoin" == "true" ]]; then if ! [[ "$RejoinTime" =~ ^[1-9][0-9]*$ ]] || (( RejoinTime <= 0 )); then exit 1; fi; fi
+if ! [[ "$StartupTime" =~ ^[0-9]+$ ]] || (( StartupTime < 0 )); then exit 1; fi
+if [[ -z "$RobloxPackSuffixes" ]]; then exit 1; fi
+if [[ -z "$GameUrl" ]]; then exit 1; fi
 
-if [[ "$Rejoin" != "true" ]] && [[ "$Rejoin" != "false" ]]; then
-    exit 1
-fi
+generateFullPackageNames
 
-if [[ "$Rejoin" == "true" ]]; then
-    if ! [[ "$RejoinTime" =~ ^[1-9][0-9]*$ ]] || (( RejoinTime <= 0 )); then
-        exit 1
-    fi
-fi
-
-if ! [[ "$StartupTime" =~ ^[0-9]+$ ]] || (( StartupTime < 0 )); then
-    exit 1
-fi
-
-if [[ -z "$RobloxPackSuffixes" ]]; then
-    exit 1
-fi
-
-if [[ -z "$VipServerUrl" ]] || [[ "$VipServerUrl" == "https://www.roblox.com/share?code=YOUR_CODE_HERE&type=Server" ]]; then
-    exit 1 # Thoat neu URL la gia tri mac dinh
-fi
-
-generateFullPackageNames # Ham nay se exit 1 neu khong co hau to hop le
-
-# Kiem tra quyen root
-if [[ $(id -u) -ne 0 ]]; then
-    exit 1 # Thoat neu khong co quyen root, vi 'su -c' se duoc goi
-fi
-
-# Chay logic chinh
 if [[ "$Rejoin" == "true" ]]; then
     continuousRejoinLoop
 else
