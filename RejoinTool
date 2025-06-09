@@ -6,7 +6,7 @@ Rejoin=true
 RejoinTime=5
 StartupTime=10
 RobloxPackSuffixes="b c d"
-VipServerUrl="https://www.roblox.com/share?code=YOUR_CODE_HERE&type=Server"
+VipServerUrl="https://www.roblox.com/share?code=401cf562425a5b46b43cd58bb546d061&type=Server"
 BasePackageName="com.roblox.clien"
 
 #-----------------------------------------------------------------------
