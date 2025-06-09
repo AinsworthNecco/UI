@@ -7,7 +7,7 @@
 #---------------------------------------------------
 
 
-Suffixes="b"
+Suffixes="b c d e"
 DelayTime=10
 VipServerUrl="https://www.roblox.com/share?code=401cf562425a5b46b43cd58bb546d061&type=Server"
 BasePackageName="com.roblox.clien"
