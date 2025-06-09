@@ -3,10 +3,10 @@
 # --SETTINGS--
 Instances=2
 Rejoin=true
-RejoinTime=5 # Thoi gian Rejoin (tinh bang PHUT)
-StartupTime=10 # Thoi gian cho giua moi lan mo Roblox (tinh bang GIAY)
+RejoinTime=5
+StartupTime=10
 RobloxPackSuffixes="b c d"
-GameUrl="https://www.roblox.com/games/8737602449/PLS-DONATE" # URL cua game Roblox de tham gia
+VipServerUrl="https://www.roblox.com/share?code=YOUR_CODE_HERE&type=Server"
 BasePackageName="com.roblox.clien"
 
 #-----------------------------------------------------------------------
@@ -42,11 +42,9 @@ openRobloxInstance() {
     fi
 
     if isRunning "$selectedClient"; then
-        : 
-        am start -a android.intent.action.VIEW -d "$GameUrl" -p "$selectedClient"
-        sleep "$StartupTime" 
+        : # Da dang chay, khong lam gi them
     else
-        am start -a android.intent.action.VIEW -d "$GameUrl" -p "$selectedClient"
+        am start -a android.intent.action.VIEW -d "$VipServerUrl" -p "$selectedClient"
         sleep "$StartupTime"
     fi
 }
@@ -135,11 +133,16 @@ if [[ -z "$RobloxPackSuffixes" ]]; then
     exit 1
 fi
 
-if [[ -z "$GameUrl" ]]; then 
-    exit 1
+if [[ -z "$VipServerUrl" ]] || [[ "$VipServerUrl" == "https://www.roblox.com/share?code=YOUR_CODE_HERE&type=Server" ]]; then
+    exit 1 # Thoat neu URL la gia tri mac dinh
 fi
 
-generateFullPackageNames
+generateFullPackageNames # Ham nay se exit 1 neu khong co hau to hop le
+
+# Kiem tra quyen root
+if [[ $(id -u) -ne 0 ]]; then
+    exit 1 # Thoat neu khong co quyen root, vi 'su -c' se duoc goi
+fi
 
 # Chay logic chinh
 if [[ "$Rejoin" == "true" ]]; then
