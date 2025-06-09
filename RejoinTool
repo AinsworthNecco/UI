@@ -9,7 +9,7 @@
 
 Suffixes="b c d e"
 DelayTime=10
-VipServerUrl="https://www.roblox.com/share?code=b89f40921d592b468193168dcfd876c9&type=Server"
+VipServerUrl="roblox://placeId=8737602449"
 BasePackageName="com.roblox.clien"
 
 #---------------------------------------------------
