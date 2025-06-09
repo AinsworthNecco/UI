@@ -13,7 +13,7 @@ local UserSettings = game:GetService("UserSettings") -- ĐÃ SỬA: Lấy UserSe
 local placeId = game.PlaceId
 local currentJobId = game.JobId
 
-local DEFAULT_WAIT_MINUTES = 0.5
+local DEFAULT_WAIT_MINUTES = 10
 local minPlayerPercentage = 0.50
 local maxPlayerPercentageLimit = 0.90
 local waitTimeBetweenFullScans = 7
