@@ -8,7 +8,7 @@
 
 
 Suffixes="b c d e"
-DelayTime=10
+DelayTime=35
 VipServerUrl="roblox://placeId=8737602449"
 BasePackageName="com.roblox.clien"
 
