@@ -6,7 +6,7 @@ Rejoin=false # <--- THAY DOI 1: Dat la 'false' de chay mot lan khi webhook kich 
 RejoinTime=5 # Thoi gian Rejoin (tinh bang PHUT)
 StartupTime=20 # Thoi gian cho giua moi lan mo Roblox (tinh bang GIAY)
 RobloxPackSuffixes="b c d"
-GameUrl="https://www.roblox.com/games/8737602449/PLS-DONATE"
+GameUrl="https://www.roblox.com/share?code=401cf562425a5b46b43cd58bb546d061&type=Server"
 BasePackageName="com.roblox.clien"
 
 #-----------------------------------------------------------------------
