@@ -1,117 +1,46 @@
 #!/data/data/com.termux/files/usr/bin/bash
+# Script mo nhieu phien ban Roblox dua tren cau hinh san co.
 
-# --SETTINGS--
-Instances=4
-Rejoin=false # <--- THAY DOI 1: Dat la 'false' de chay mot lan khi webhook kich hoat
-RejoinTime=5 # Thoi gian Rejoin (tinh bang PHUT)
-StartupTime=20 # Thoi gian cho giua moi lan mo Roblox (tinh bang GIAY)
-RobloxPackSuffixes="b c d e"
-GameUrl="https://www.roblox.com/share?code=401cf562425a5b46b43cd58bb546d061&type=Server"
+#---------------------------------------------------
+# -- SETTINGS --
+# Chinh sua cac gia tri duoi day truoc khi chay.
+#---------------------------------------------------
+
+
+Suffixes="b"
+DelayTime=10
+VipServerUrl="https://www.roblox.com/games/8737602449/PLS-DONATE"
 BasePackageName="com.roblox.clien"
 
-#-----------------------------------------------------------------------
-# KET THUC PHAN CAU HINH
-#-----------------------------------------------------------------------
+#---------------------------------------------------
+# -- LOGIC --
+# Khong can sua phan duoi day.
+#---------------------------------------------------
 
-declare -a FullRobloxPackages=()
+# Chuyen chuoi Suffixes thanh mot mang de xu ly
+read -r -a suffixes_array <<< "$Suffixes"
+totalInstances=${#suffixes_array[@]}
+count=0
 
-generateFullPackageNames() {
-    local suffixes_array=($RobloxPackSuffixes)
-    for suffix in "${suffixes_array[@]}"; do
-        if [[ -n "$suffix" ]]; then
-            FullRobloxPackages+=("${BasePackageName}${suffix}")
-        fi
-    done
-    if [ ${#FullRobloxPackages[@]} -eq 0 ]; then
-        exit 1
-    fi
-}
-
-checkPackageExists() {
-    local pkg_path
-    pkg_path=$(pm path "$1" 2>/dev/null)
-    if [[ -n "$pkg_path" ]]; then
-        return 0
-    else
-        return 1
-    fi
-}
-
-openRobloxInstance() {
-    local selectedClient="$1"
-    if ! checkPackageExists "$selectedClient"; then
-        return 1
-    fi
-    am start -a android.intent.action.VIEW -d "$GameUrl" -p "$selectedClient"
-    sleep "$StartupTime"
-}
-
-forceCloseAllInstances() {
-    local countToManage=$Instances
-    if ((${#FullRobloxPackages[@]} < Instances)); then
-        countToManage=${#FullRobloxPackages[@]}
-    fi
-
-    for ((i=0; i<countToManage; i++)); do
-        local package_to_close="${FullRobloxPackages[$i]}"
-        if checkPackageExists "$package_to_close"; then
-            # THAY DOI 2: Bo 'su -c' vi toan bo script da duoc webhook server goi voi quyen root
-            am force-stop "$package_to_close"
-        fi
-    done
-    sleep 3
-}
-
-runInstances() {
-    local opened_count=0
-    for ((i=0; i<${#FullRobloxPackages[@]}; i++)); do
-        if ((opened_count >= Instances)); then
-            break
-        fi
-        openRobloxInstance "${FullRobloxPackages[$i]}"
-        ((opened_count++))
-    done
-}
-
-continuousRejoinLoop() {
-    local rejoin_time_seconds=$((RejoinTime * 60))
-    if ((rejoin_time_seconds <= 0)); then
-        exit 1
-    fi
-    while true; do
-        forceCloseAllInstances
-        runInstances
-        local slept_time=0
-        while ((slept_time < rejoin_time_seconds)); do
-            local remaining_sleep=$((rejoin_time_seconds - slept_time))
-            local sleep_chunk=60
-            if ((remaining_sleep < sleep_chunk)); then
-                sleep_chunk=$remaining_sleep
-            fi
-            if ((sleep_chunk <=0)); then
-                break
-            fi
-            sleep $sleep_chunk
-            slept_time=$((slept_time + sleep_chunk))
-        done
-    done
-}
-
-# --- Phan logic chinh va kiem tra cau hinh ---
-if ! [[ "$Instances" =~ ^[1-9][0-9]*$ ]] || (( Instances <= 0 )); then exit 1; fi
-if [[ "$Rejoin" != "true" ]] && [[ "$Rejoin" != "false" ]]; then exit 1; fi
-if [[ "$Rejoin" == "true" ]]; then if ! [[ "$RejoinTime" =~ ^[1-9][0-9]*$ ]] || (( RejoinTime <= 0 )); then exit 1; fi; fi
-if ! [[ "$StartupTime" =~ ^[0-9]+$ ]] || (( StartupTime < 0 )); then exit 1; fi
-if [[ -z "$RobloxPackSuffixes" ]]; then exit 1; fi
-if [[ -z "$GameUrl" ]]; then exit 1; fi
-
-generateFullPackageNames
-
-if [[ "$Rejoin" == "true" ]]; then
-    continuousRejoinLoop
-else
-    forceCloseAllInstances
-    runInstances
+# Kiem tra xem co hau to nao duoc khai bao khong
+if (( totalInstances == 0 )); then
+    exit 1
 fi
+
+# Vong lap de mo tung phien ban
+for suffix in "${suffixes_array[@]}"; do
+    ((count++))
+    
+    # Tao ten goi day du, vi du: com.roblox.clienb
+    fullPackageName="${BasePackageName}${suffix}"
+    
+    # Thuc thi lenh am start
+    am start -a android.intent.action.VIEW -d "$VipServerUrl" -p "$fullPackageName"
+    
+    # Chi cho neu day chua phai la phien ban cuoi cung
+    if (( count < totalInstances )); then
+        sleep "$DelayTime"
+    fi
+done
 
 exit 0
