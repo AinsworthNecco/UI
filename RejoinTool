@@ -7,7 +7,7 @@
 #---------------------------------------------------
 
 
-Suffixes="b c d"
+Suffixes="b c d e"
 DelayTime=100
 VipServerUrl="roblox://placeId=8737602449"
 BasePackageName="com.roblox.clien"
