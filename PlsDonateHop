@@ -7,7 +7,7 @@ local CoreGui = game:GetService("CoreGui")
 local Lighting = game:GetService("Lighting")
 local SoundService = game:GetService("SoundService")
 local RunService = game:GetService("RunService")
-local UserSettings = game:GetService("UserSettings") -- ĐÃ SỬA: Lấy UserSettings service đúng cách.
+-- local UserSettings = game:GetService("UserSettings") -- ĐÃ BỎ: Không cần UserSettings nếu dùng setfpscap()
 
 -- --- Cấu hình Script ---
 local placeId = game.PlaceId
@@ -35,13 +35,13 @@ local FIXED_TEXT_SIZE = 50
 -- Tại đây bạn có thể bật (true) hoặc tắt (false) các tính năng của script
 -- và cài đặt FPS mục tiêu.
 local SETTINGS = {
-    enableSafePlatform = true,        -- true: Tạo platform an toàn khi AFK. false: Không tạo.
-    enableStaticAfkView = true,       -- true: Thiết lập camera tĩnh nhìn vào màn hình đen khi AFK. false: Không thay đổi camera.
-    enableGraphicsOptimization = true,  -- true: Tối ưu hóa đồ họa (xóa vật thể, giảm chất lượng...). false: Không tối ưu.
-    enableServerHopLogic = true,      -- true: Kích hoạt toàn bộ logic tìm và chuyển server. false: Chỉ thực hiện các tác vụ trên (platform, view, optimize) rồi dừng.
-    enableFileHistory = true,         -- true: Sử dụng file để lưu và tránh các server đã vào. false: Không dùng file (chỉ tránh server hiện tại).
-    enableDonateResetCountdown = true,  -- true: Reset thời gian đếm ngược khi có donate. false: Không reset.
-    targetFps = 5                     -- Đặt FPS mục tiêu. Ví dụ: 5, 15, 30, 60. Đặt là 0 hoặc số âm để không giới hạn (theo mặc định game).
+    enableSafePlatform = true,        -- true: Tạo platform an toàn khi AFK. false: Không tạo.
+    enableStaticAfkView = true,       -- true: Thiết lập camera tĩnh nhìn vào màn hình đen khi AFK. false: Không thay đổi camera.
+    enableGraphicsOptimization = true,  -- true: Tối ưu hóa đồ họa (xóa vật thể, giảm chất lượng...). false: Không tối ưu.
+    enableServerHopLogic = true,      -- true: Kích hoạt toàn bộ logic tìm và chuyển server. false: Chỉ thực hiện các tác vụ trên (platform, view, optimize) rồi dừng.
+    enableFileHistory = true,         -- true: Sử dụng file để lưu và tránh các server đã vào. false: Không dùng file (chỉ tránh server hiện tại).
+    enableDonateResetCountdown = true,  -- true: Reset thời gian đếm ngược khi có donate. false: Không reset.
+    targetFps = 5                     -- Đặt FPS mục tiêu. Ví dụ: 5, 15, 30, 60. Đặt là 0 hoặc số âm để không giới hạn (theo mặc định game).
 }
 -- --- Kết thúc Setting ---
 
@@ -50,29 +50,29 @@ local canAccessFiles = false
 local writefile_func, readfile_func
 
 if SETTINGS.enableFileHistory then
-    print("[FileIO] Tính năng lịch sử file được BẬT trong settings. Đang kiểm tra quyền...")
-    pcall(function()
-        if writefile and readfile then
-            canAccessFiles = true
-            writefile_func = writefile
-            readfile_func = readfile
-            print("[FileIO] Quyền writefile/readfile có sẵn.")
-        else
-            print("[FileIO] Quyền writefile/readfile KHÔNG có sẵn.")
-        end
-    end)
+    print("[FileIO] Tính năng lịch sử file được BẬT trong settings. Đang kiểm tra quyền...")
+    pcall(function()
+        if writefile and readfile then
+            canAccessFiles = true
+            writefile_func = writefile
+            readfile_func = readfile
+            print("[FileIO] Quyền writefile/readfile có sẵn.")
+        else
+            print("[FileIO] Quyền writefile/readfile KHÔNG có sẵn.")
+        end
+    end)
 else
-    print("[FileIO] Tính năng lịch sử file bị TẮT trong settings.")
+    print("[FileIO] Tính năng lịch sử file bị TẮT trong settings.")
 end
 
 if canAccessFiles then
-    print("[ServerHop] writefile/readfile được kích hoạt (do setting BẬT và có quyền).")
+    print("[ServerHop] writefile/readfile được kích hoạt (do setting BẬT và có quyền).")
 else
-    if SETTINGS.enableFileHistory then
-        print("[ServerHop] writefile/readfile KHÔNG khả dụng (setting BẬT nhưng thiếu quyền hoặc hàm không tồn tại).")
-    else
-        print("[ServerHop] writefile/readfile KHÔNG khả dụng (do setting TẮT).")
-    end
+    if SETTINGS.enableFileHistory then
+        print("[ServerHop] writefile/readfile KHÔNG khả dụng (setting BẬT nhưng thiếu quyền hoặc hàm không tồn tại).")
+    else
+        print("[ServerHop] writefile/readfile KHÔNG khả dụng (do setting TẮT).")
+    end
 end
 
 -- --- UI Chính (Thông báo trạng thái) ---
@@ -93,220 +93,206 @@ statusTextLabel.TextYAlignment = Enum.TextYAlignment.Center; statusTextLabel.Tex
 statusTextLabel.Parent = statusScreenGui; statusTextLabel.Text = "..."
 
 local function updateStatus(message)
-    local msgStr = "[UI] " .. tostring(message); print(msgStr)
-    if statusTextLabel and statusTextLabel.Parent then statusTextLabel.Text = tostring(message) end
+    local msgStr = "[UI] " .. tostring(message); print(msgStr)
+    if statusTextLabel and statusTextLabel.Parent then statusTextLabel.Text = tostring(message) end
 end
 
 -- --- Hàm xử lý file cho LỊCH SỬ server ---
 local serverHistoryCache = {}
 local function loadServerHistory()
-    print("[FileIO] loadServerHistory() BẮT ĐẦU.")
-    if not canAccessFiles then print("[FileIO] Không có quyền truy cập file (do setting hoặc thiếu quyền)."); return {} end
-    local historySet = {}; local s, c = pcall(readfile_func, SERVER_HISTORY_FILENAME)
-    if s and c then local lC=0; for line in string.gmatch(c,"[^".."\r\n".."]+")do local tL=line:match("^%s*(.-)%s*$") if tL and #tL>0 then historySet[tL]=true;lC=lC+1;end end print("[FileIO] Đã tải "..lC.." server.")
-    else print("[FileIO] Lỗi đọc/không có file lịch sử: "..tostring(c)) end
-    serverHistoryCache=historySet; print("[FileIO] loadServerHistory() KẾT THÚC."); return historySet
+    print("[FileIO] loadServerHistory() BẮT ĐẦU.")
+    if not canAccessFiles then print("[FileIO] Không có quyền truy cập file (do setting hoặc thiếu quyền)."); return {} end
+    local historySet = {}; local s, c = pcall(readfile_func, SERVER_HISTORY_FILENAME)
+    if s and c then local lC=0; for line in string.gmatch(c,"[^".."\r\n".."]+")do local tL=line:match("^%s*(.-)%s*$") if tL and #tL>0 then historySet[tL]=true;lC=lC+1;end end print("[FileIO] Đã tải "..lC.." server.")
+    else print("[FileIO] Lỗi đọc/không có file lịch sử: "..tostring(c)) end
+    serverHistoryCache=historySet; print("[FileIO] loadServerHistory() KẾT THÚC."); return historySet
 end
 local function addJobIdToHistoryAndSave(jId)
-    print("[FileIO] addJobIdToHistoryAndSave() JobId: "..tostring(jId))
-    if not jId or not canAccessFiles then print("[FileIO] Không thêm JobId (không có JobId, setting tắt hoặc thiếu quyền).");return end
-    serverHistoryCache[jId]=true; local l={}; for id in pairs(serverHistoryCache)do table.insert(l,id)end
-    local sS,eR=pcall(writefile_func,SERVER_HISTORY_FILENAME,table.concat(l,"\n"))
-    if sS then print("[FileIO] Đã cập nhật lịch sử.") else print("[FileIO] Lỗi lưu: "..tostring(eR)) end
-    print("[FileIO] addJobIdToHistoryAndSave() KẾT THÚC.")
+    print("[FileIO] addJobIdToHistoryAndSave() JobId: "..tostring(jId))
+    if not jId or not canAccessFiles then print("[FileIO] Không thêm JobId (không có JobId, setting tắt hoặc thiếu quyền).");return end
+    serverHistoryCache[jId]=true; local l={}; for id in pairs(serverHistoryCache)do table.insert(l,id)end
+    local sS,eR=pcall(writefile_func,SERVER_HISTORY_FILENAME,table.concat(l,"\n"))
+    if sS then print("[FileIO] Đã cập nhật lịch sử.") else print("[FileIO] Lỗi lưu: "..tostring(eR)) end
+    print("[FileIO] addJobIdToHistoryAndSave() KẾT THÚC.")
 end
 
 -- --- Hàm Tạo Platform An Toàn ---
 local function createSafePlatform()
-    print("[Platform] createSafePlatform() BẮT ĐẦU."); updateStatus("Đang tạo platform...")
-    if game.Workspace:FindFirstChild(AFK_PLATFORM_NAME)then print("[Platform] Platform đã tồn tại.");updateStatus("Platform đã có.");return game.Workspace:FindFirstChild(AFK_PLATFORM_NAME)end
-    print("[Platform] Đang tạo Part platform..."); local p=Instance.new("Part");p.Name=AFK_PLATFORM_NAME;p.Anchored=true;p.CanCollide=true;p.Size=Vector3.new(20000,40,20000);p.Color=Color3.fromRGB(50,50,50);p.Material=Enum.Material.Concrete;p.TopSurface=Enum.SurfaceType.Smooth;p.BottomSurface=Enum.SurfaceType.Smooth;p.Transparency=0
-    local char=LocalPlayer.Character; local hum=char and char:FindFirstChildOfClass("Humanoid"); local hrp=char and char:FindFirstChild("HumanoidRootPart")
-    if hum and hrp then
-        print("[Platform] HRP Y:"..hrp.Position.Y..", HipH:"..hum.HipHeight..", Offset:"..PLATFORM_VERTICAL_OFFSET)
-        local hrpP=hrp.Position;local hrpSY=hrp.Size.Y;local hipH=hum.HipHeight;local fCIY=hrpP.Y-(hrpSY/2)-hipH;local pTTY=fCIY-PLATFORM_VERTICAL_OFFSET;local pCY=pTTY-(p.Size.Y/2)
-        p.Position=Vector3.new(hrpP.X,pCY,hrpP.Z);print(string.format("[Platform] Platform: TâmY:%.2f, MặtTrênY:%.2f (ChânLýTưởngY:%.2f, Offset:%.2f)",pCY,pTTY,fCIY,PLATFORM_VERTICAL_OFFSET))
-    else
-        print("[Platform] KHÔNG tìm HRP/Humanoid. Đặt mặc định.");p.Position=Vector3.new(0,-30-PLATFORM_VERTICAL_OFFSET,0)
-        if not char then print("[Platform] Lý do: Char nil") elseif not hum then print("[Platform] Lý do: No Humanoid") elseif not hrp then print("[Platform] Lý do: No HRP") end
-    end
-    p.Parent=game.Workspace;print("[Platform] Platform ĐÃ TẠO.");updateStatus("Platform đã tạo.");return p
+    print("[Platform] createSafePlatform() BẮT ĐẦU."); updateStatus("Đang tạo platform...")
+    if game.Workspace:FindFirstChild(AFK_PLATFORM_NAME)then print("[Platform] Platform đã tồn tại.");updateStatus("Platform đã có.");return game.Workspace:FindFirstChild(AFK_PLATFORM_NAME)end
+    print("[Platform] Đang tạo Part platform..."); local p=Instance.new("Part");p.Name=AFK_PLATFORM_NAME;p.Anchored=true;p.CanCollide=true;p.Size=Vector3.new(20000,40,20000);p.Color=Color3.fromRGB(50,50,50);p.Material=Enum.Material.Concrete;p.TopSurface=Enum.SurfaceType.Smooth;p.BottomSurface=Enum.SurfaceType.Smooth;p.Transparency=0
+    local char=LocalPlayer.Character; local hum=char and char:FindFirstChildOfClass("Humanoid"); local hrp=char and char:FindFirstChild("HumanoidRootPart")
+    if hum and hrp then
+        print("[Platform] HRP Y:"..hrp.Position.Y..", HipH:"..hum.HipHeight..", Offset:"..PLATFORM_VERTICAL_OFFSET)
+        local hrpP=hrp.Position;local hrpSY=hrp.Size.Y;local hipH=hum.HipHeight;local fCIY=hrpP.Y-(hrpSY/2)-hipH;local pTTY=fCIY-PLATFORM_VERTICAL_OFFSET;local pCY=pTTY-(p.Size.Y/2)
+        p.Position=Vector3.new(hrpP.X,pCY,hrpP.Z);print(string.format("[Platform] Platform: TâmY:%.2f, MặtTrênY:%.2f (ChânLýTưởngY:%.2f, Offset:%.2f)",pCY,pTTY,fCIY,PLATFORM_VERTICAL_OFFSET))
+    else
+        print("[Platform] KHÔNG tìm HRP/Humanoid. Đặt mặc định.");p.Position=Vector3.new(0,-30-PLATFORM_VERTICAL_OFFSET,0)
+        if not char then print("[Platform] Lý do: Char nil") elseif not hum then print("[Platform] Lý do: No Humanoid") elseif not hrp then print("[Platform] Lý do: No HRP") end
+    end
+    p.Parent=game.Workspace;print("[Platform] Platform ĐÃ TẠO.");updateStatus("Platform đã tạo.");return p
 end
 
 -- --- Hàm Thiết Lập View AFK Tĩnh (NHÂN VẬT KHÔNG BỊ NEO, PART NEO ĐẦU CÓ HƯỚNG CỐ ĐỊNH) ---
 local function setupStaticAfkView()
-    print("[StaticView] Bắt đầu thiết lập view AFK tĩnh (nhân vật tự do, part neo đầu hướng cố định)...")
-    updateStatus("Thiết lập view AFK tĩnh...")
+    print("[StaticView] Bắt đầu thiết lập view AFK tĩnh (nhân vật tự do, part neo đầu hướng cố định)...")
+    updateStatus("Thiết lập view AFK tĩnh...")
 
-    local player = LocalPlayer
-    local character = player.Character
-    if not character then
-        print("[StaticView] Nhân vật chưa tải, đang đợi CharacterAdded...")
-        character = player.CharacterAdded:Wait()
-        if not character then
-            print("[StaticView] KHÔNG THỂ LẤY NHÂN VẬT. Bỏ qua thiết lập view tĩnh.")
-            return
-        end
-        print("[StaticView] Nhân vật đã xuất hiện: " .. character.Name)
-    end
+    local player = LocalPlayer
+    local character = player.Character
+    if not character then
+        print("[StaticView] Nhân vật chưa tải, đang đợi CharacterAdded...")
+        character = player.CharacterAdded:Wait()
+        if not character then
+            print("[StaticView] KHÔNG THỂ LẤY NHÂN VẬT. Bỏ qua thiết lập view tĩnh.")
+            return
+        end
+        print("[StaticView] Nhân vật đã xuất hiện: " .. character.Name)
+    end
 
-    local head = character:FindFirstChild("Head")
-    if not head then
-        print("[StaticView] Đang đợi Head của nhân vật '" .. character.Name .. "'...")
-        head = character:WaitForChild("Head", 10)
-        if not head then
-            print("[StaticView] KHÔNG tìm thấy Head của nhân vật '" .. character.Name .. "'. Bỏ qua thiết lập view tĩnh.")
-            return
-        end
-    end
-    
-    local camera = workspace.CurrentCamera
-    if not camera then
-        print("[StaticView] workspace.CurrentCamera không tồn tại. Bỏ qua thiết lập view tĩnh.")
-        return
-    end
+    local head = character:FindFirstChild("Head")
+    if not head then
+        print("[StaticView] Đang đợi Head của nhân vật '" .. character.Name .. "'...")
+        head = character:WaitForChild("Head", 10)
+        if not head then
+            print("[StaticView] KHÔNG tìm thấy Head của nhân vật '" .. character.Name .. "'. Bỏ qua thiết lập view tĩnh.")
+            return
+        end
+    end
+    
+    local camera = workspace.CurrentCamera
+    if not camera then
+        print("[StaticView] workspace.CurrentCamera không tồn tại. Bỏ qua thiết lập view tĩnh.")
+        return
+    end
 
-    local staticHeadAnchor = workspace:FindFirstChild(STATIC_HEAD_ANCHOR_PART_NAME)
-    if not staticHeadAnchor then
-        staticHeadAnchor = Instance.new("Part")
-        staticHeadAnchor.Name = STATIC_HEAD_ANCHOR_PART_NAME
-        staticHeadAnchor.Size = Vector3.new(0.1, 0.1, 0.1)
-        staticHeadAnchor.Transparency = 1
-        staticHeadAnchor.CanCollide = false
-        staticHeadAnchor.Parent = workspace
-        print("[StaticView] Đã tạo " .. STATIC_HEAD_ANCHOR_PART_NAME)
-    end
-    -- Đặt CFrame CHỈ LẤY VỊ TRÍ của đầu, hướng của part sẽ là mặc định (0,0,0 so với world)
-    staticHeadAnchor.CFrame = CFrame.new(head.Position) 
-    staticHeadAnchor.Anchored = true
-    print("[StaticView] " .. STATIC_HEAD_ANCHOR_PART_NAME .. " đã được định vị tại vị trí đầu và neo lại (hướng cố định theo thế giới). Vị trí: " .. tostring(staticHeadAnchor.Position))
+    local staticHeadAnchor = workspace:FindFirstChild(STATIC_HEAD_ANCHOR_PART_NAME)
+    if not staticHeadAnchor then
+        staticHeadAnchor = Instance.new("Part")
+        staticHeadAnchor.Name = STATIC_HEAD_ANCHOR_PART_NAME
+        staticHeadAnchor.Size = Vector3.new(0.1, 0.1, 0.1)
+        staticHeadAnchor.Transparency = 1
+        staticHeadAnchor.CanCollide = false
+        staticHeadAnchor.Parent = workspace
+        print("[StaticView] Đã tạo " .. STATIC_HEAD_ANCHOR_PART_NAME)
+    end
+    -- Đặt CFrame CHỈ LẤY VỊ TRÍ của đầu, hướng của part sẽ là mặc định (0,0,0 so với world)
+    staticHeadAnchor.CFrame = CFrame.new(head.Position) 
+    staticHeadAnchor.Anchored = true
+    print("[StaticView] " .. STATIC_HEAD_ANCHOR_PART_NAME .. " đã được định vị tại vị trí đầu và neo lại (hướng cố định theo thế giới). Vị trí: " .. tostring(staticHeadAnchor.Position))
 
-    local blackTarget = workspace:FindFirstChild(STATIC_BLACK_SCREEN_PART_NAME)
-    if not blackTarget then
-        blackTarget = Instance.new("Part")
-        blackTarget.Name = STATIC_BLACK_SCREEN_PART_NAME
-        blackTarget.Size = Vector3.new(2500, 2500, 10)
-        blackTarget.Color = Color3.fromRGB(0, 0, 0)
-        blackTarget.Material = Enum.Material.Plastic
-        blackTarget.Transparency = 0
-        blackTarget.CanCollide = false
-        blackTarget.Parent = workspace
-        print("[StaticView] Đã tạo " .. STATIC_BLACK_SCREEN_PART_NAME)
-    end
-    -- Đặt part đen ở phía ĐÔNG (trục +X) của part neo đầu
-    local eastPositionFromAnchor = staticHeadAnchor.Position + Vector3.new(150, 0, 0)
-    blackTarget.CFrame = CFrame.new(eastPositionFromAnchor) -- Chỉ cần vị trí, hướng không quá quan trọng cho part này
-    blackTarget.Anchored = true
-    print("[StaticView] " .. STATIC_BLACK_SCREEN_PART_NAME .. " đã được định vị và neo tại: " .. tostring(blackTarget.Position))
+    local blackTarget = workspace:FindFirstChild(STATIC_BLACK_SCREEN_PART_NAME)
+    if not blackTarget then
+        blackTarget = Instance.new("Part")
+        blackTarget.Name = STATIC_BLACK_SCREEN_PART_NAME
+        blackTarget.Size = Vector3.new(2500, 2500, 10)
+        blackTarget.Color = Color3.fromRGB(0, 0, 0)
+        blackTarget.Material = Enum.Material.Plastic
+        blackTarget.Transparency = 0
+        blackTarget.CanCollide = false
+        blackTarget.Parent = workspace
+        print("[StaticView] Đã tạo " .. STATIC_BLACK_SCREEN_PART_NAME)
+    end
+    -- Đặt part đen ở phía ĐÔNG (trục +X) của part neo đầu
+    local eastPositionFromAnchor = staticHeadAnchor.Position + Vector3.new(150, 0, 0)
+    blackTarget.CFrame = CFrame.new(eastPositionFromAnchor) -- Chỉ cần vị trí, hướng không quá quan trọng cho part này
+    blackTarget.Anchored = true
+    print("[StaticView] " .. STATIC_BLACK_SCREEN_PART_NAME .. " đã được định vị và neo tại: " .. tostring(blackTarget.Position))
 
-    camera.CameraType = Enum.CameraType.Scriptable
-    camera.CFrame = CFrame.new(staticHeadAnchor.Position, blackTarget.Position) -- Nhìn từ part neo đến part đen
-    camera.Focus = blackTarget.CFrame
-    print("[StaticView] Camera đã được thiết lập tĩnh để nhìn vào part đen. Vị trí Camera: " .. tostring(camera.CFrame.Position))
-    updateStatus("View AFK tĩnh (hướng cố định) đã thiết lập.")
+    camera.CameraType = Enum.CameraType.Scriptable
+    camera.CFrame = CFrame.new(staticHeadAnchor.Position, blackTarget.Position) -- Nhìn từ part neo đến part đen
+    camera.Focus = blackTarget.CFrame
+    print("[StaticView] Camera đã được thiết lập tĩnh để nhìn vào part đen. Vị trí Camera: " .. tostring(camera.CFrame.Position))
+    updateStatus("View AFK tĩnh (hướng cố định) đã thiết lập.")
 end
 
 -- --- Script Tối Ưu Hóa Đồ Họa ---
 local function optimizeGraphics()
-    print("[Optimizer] optimizeGraphics() BẮT ĐẦU."); updateStatus("Bắt đầu tối ưu đồ họa...")
-    
-    if SETTINGS.enableSafePlatform then
-        createSafePlatform(); print("[Optimizer] createSafePlatform() đã gọi."); updateStatus("Platform đã xử lý.")
-    else
-        print("[Optimizer] Tạo platform an toàn bị TẮT bởi setting.")
-    end
-    
-    task.wait(0.1)
-    local sP, eP = pcall(function()
-        print("[Optimizer] Bên trong pcall optimizeGraphics()."); updateStatus("Tối ưu (XÓA MẠNH, GIỮ CAMERA)...")
-        task.wait(0.1); print("[GraphicsOptimizer] Chuẩn bị xóa Workspace...")
-        local itemsToDel={}; if not LocalPlayer.Character then print("[Opt] CẢNH BÁO: Char nil khi xóa!") end
-        for _,item in pairs(game.Workspace:GetChildren()) do
-            local isChar = LocalPlayer.Character and item.Name == LocalPlayer.Character.Name
-            local isSafePlatform = item.Name == AFK_PLATFORM_NAME
-            local isCamera = item == workspace.CurrentCamera
-            local isStaticHeadAnchor = item.Name == STATIC_HEAD_ANCHOR_PART_NAME
-            local isStaticBlackScreen = item.Name == STATIC_BLACK_SCREEN_PART_NAME
-            
-            local keepItem = isChar or isCamera
-            if SETTINGS.enableSafePlatform then keepItem = keepItem or isSafePlatform end
-            if SETTINGS.enableStaticAfkView then keepItem = keepItem or isStaticHeadAnchor or isStaticBlackScreen end
+    print("[Optimizer] optimizeGraphics() BẮT ĐẦU."); updateStatus("Bắt đầu tối ưu đồ họa...")
+    
+    if SETTINGS.enableSafePlatform then
+        createSafePlatform(); print("[Optimizer] createSafePlatform() đã gọi."); updateStatus("Platform đã xử lý.")
+    else
+        print("[Optimizer] Tạo platform an toàn bị TẮT bởi setting.")
+    end
+    
+    task.wait(0.1)
+    local sP, eP = pcall(function()
+        print("[Optimizer] Bên trong pcall optimizeGraphics()."); updateStatus("Tối ưu (XÓA MẠNH, GIỮ CAMERA)...")
+        task.wait(0.1); print("[GraphicsOptimizer] Chuẩn bị xóa Workspace...")
+        local itemsToDel={}; if not LocalPlayer.Character then print("[Opt] CẢNH BÁO: Char nil khi xóa!") end
+        for _,item in pairs(game.Workspace:GetChildren()) do
+            local isChar = LocalPlayer.Character and item.Name == LocalPlayer.Character.Name
+            local isSafePlatform = item.Name == AFK_PLATFORM_NAME
+            local isCamera = item == workspace.CurrentCamera
+            local isStaticHeadAnchor = item.Name == STATIC_HEAD_ANCHOR_PART_NAME
+            local isStaticBlackScreen = item.Name == STATIC_BLACK_SCREEN_PART_NAME
+            
+            local keepItem = isChar or isCamera
+            if SETTINGS.enableSafePlatform then keepItem = keepItem or isSafePlatform end
+            if SETTINGS.enableStaticAfkView then keepItem = keepItem or isStaticHeadAnchor or isStaticBlackScreen end
 
-            if not keepItem then
-                table.insert(itemsToDel, item)
-            else print("[Opt] Giữ lại: " .. item.Name) end
-        end
-        print("[Opt] Sẽ xóa " .. #itemsToDel .. " đối tượng."); updateStatus("Sẽ xóa " .. #itemsToDel .. " đối tượng...")
-        for _,item in ipairs(itemsToDel) do local sD,eD=pcall(function()item:Destroy()end) if not sD then print("[Opt] Lỗi xóa "..item.Name..": "..tostring(eD))end end
-        print("[Opt] Đã xóa "..#itemsToDel.." đối tượng."); updateStatus("Đã xóa đối tượng thừa.")
-        
-        print("[Opt] Cấu hình Lighting..."); Lighting.GlobalShadows=false;Lighting.Brightness=0;Lighting.Ambient=Color3.new(0,0,0);Lighting.OutdoorAmbient=Color3.new(0,0,0);Lighting.ClockTime=12;Lighting.FogEnd=1e9;Lighting.FogStart=1e9-1;Lighting.ExposureCompensation=-2
-        pcall(function()local atm=Lighting:FindFirstChild("Atmosphere");if atm then atm:Destroy()end end); pcall(function()local sky=Lighting:FindFirstChild("Sky");if sky then sky:Destroy()end end)
-        print("[Opt] Đã cấu hình Lighting.")
-        
-        print("[Opt] Xử lý GUI PlayerGui..."); if LocalPlayer:FindFirstChild("PlayerGui")then for _,gui in pairs(LocalPlayer.PlayerGui:GetChildren())do if gui.Name~=SERVER_HOP_GUI_NAME then pcall(function()gui:Destroy()end)end end end; print("[Opt] Đã xử lý GUI PlayerGui.")
-        
-        print("[Opt] Cấu hình Rendering..."); local sS,sO=pcall(function()return settings()end) -- 'settings()' là global của Roblox core scripts
-        if sS and sO and sO.Rendering then 
-            sO.Rendering.QualityLevel=Enum.QualityLevel.Level01
-            pcall(function()
-                if RunService:IsClient() then -- Chỉ client mới có thể set
-                    RunService:Set3dRenderingEnabled(false) 
-                    print("[Opt] 3D Rendering đã được TẮT.")
-                end
-            end)
-        else print("[Opt] Không thể truy cập settings().Rendering.")end; print("[Opt] Đã cấu hình Rendering.")
-        
-        print("[Opt] Tắt âm thanh...");SoundService.RespectFilteringEnabled=true;SoundService.AmbientReverb=Enum.ReverbType.NoReverb
-        for _,sound in pairs(game:GetDescendants())do if sound:IsA("Sound")then pcall(function()sound.Volume=0;sound:Stop()end)end end;print("[Opt] Đã tắt âm thanh.")
-        
-        updateStatus("Đồ họa tối ưu (GIỮ CAMERA).");print("[Opt] Hoàn tất tối ưu (GIỮ CAMERA).")
-    end)
-    if not sP then warn("[Opt] LỖI PCALL optimizeGraphics: "..tostring(eP));updateStatus("LỖI tối ưu: "..string.sub(tostring(eP),1,30))
-    else print("[Opt] pcall optimizeGraphics() THÀNH CÔNG.")end
-    print("[Optimizer] optimizeGraphics() KẾT THÚC.")
+            if not keepItem then
+                table.insert(itemsToDel, item)
+            else print("[Opt] Giữ lại: " .. item.Name) end
+        end
+        print("[Opt] Sẽ xóa " .. #itemsToDel .. " đối tượng."); updateStatus("Sẽ xóa " .. #itemsToDel .. " đối tượng...")
+        for _,item in ipairs(itemsToDel) do local sD,eD=pcall(function()item:Destroy()end) if not sD then print("[Opt] Lỗi xóa "..item.Name..": "..tostring(eD))end end
+        print("[Opt] Đã xóa "..#itemsToDel.." đối tượng."); updateStatus("Đã xóa đối tượng thừa.")
+        
+        print("[Opt] Cấu hình Lighting..."); Lighting.GlobalShadows=false;Lighting.Brightness=0;Lighting.Ambient=Color3.new(0,0,0);Lighting.OutdoorAmbient=Color3.new(0,0,0);Lighting.ClockTime=12;Lighting.FogEnd=1e9;Lighting.FogStart=1e9-1;Lighting.ExposureCompensation=-2
+        pcall(function()local atm=Lighting:FindFirstChild("Atmosphere");if atm then atm:Destroy()end end); pcall(function()local sky=Lighting:FindFirstChild("Sky");if sky then sky:Destroy()end end)
+        print("[Opt] Đã cấu hình Lighting.")
+        
+        print("[Opt] Xử lý GUI PlayerGui..."); if LocalPlayer:FindFirstChild("PlayerGui")then for _,gui in pairs(LocalPlayer.PlayerGui:GetChildren())do if gui.Name~=SERVER_HOP_GUI_NAME then pcall(function()gui:Destroy()end)end end end; print("[Opt] Đã xử lý GUI PlayerGui.")
+        
+        print("[Opt] Cấu hình Rendering..."); local sS,sO=pcall(function()return settings()end) -- 'settings()' là global của Roblox core scripts
+        if sS and sO and sO.Rendering then 
+            sO.Rendering.QualityLevel=Enum.QualityLevel.Level01
+            pcall(function()
+                if RunService:IsClient() then -- Chỉ client mới có thể set
+                    RunService:Set3dRenderingEnabled(false) 
+                end
+            end)
+        else print("[Opt] Không thể truy cập settings().Rendering.")end; print("[Opt] Đã cấu hình Rendering.")
+        
+        print("[Opt] Tắt âm thanh...");SoundService.RespectFilteringEnabled=true;SoundService.AmbientReverb=Enum.ReverbType.NoReverb
+        for _,sound in pairs(game:GetDescendants())do if sound:IsA("Sound")then pcall(function()sound.Volume=0;sound:Stop()end)end end;print("[Opt] Đã tắt âm thanh.")
+        
+        updateStatus("Đồ họa tối ưu (GIỮ CAMERA).");print("[Opt] Hoàn tất tối ưu (GIỮ CAMERA).")
+    end)
+    if not sP then warn("[Opt] LỖI PCALL optimizeGraphics: "..tostring(eP));updateStatus("LỖI tối ưu: "..string.sub(tostring(eP),1,30))
+    else print("[Opt] pcall optimizeGraphics() THÀNH CÔNG.")end
+    print("[Optimizer] optimizeGraphics() KẾT THÚC.")
 end
 
--- --- Hàm Thiết Lập Giới Hạn FPS ---
+-- --- Hàm Thiết Lập Giới Hạn FPS (ĐÃ CẬP NHẬT) ---
 local function applyFpsCap()
-    if SETTINGS.targetFps and type(SETTINGS.targetFps) == "number" and SETTINGS.targetFps > 0 then
-        print("[FPSManager] Đang cố gắng đặt giới hạn FPS thành: " .. SETTINGS.targetFps)
-        updateStatus("Đặt FPS Cap: " .. SETTINGS.targetFps)
-        local success, err = pcall(function()
-            local userGameSettings = UserSettings:GetService("UserGameSettings")
-            if userGameSettings then
-                userGameSettings.MaxFrameRate = SETTINGS.targetFps
-                print("[FPSManager] UserGameSettings.MaxFrameRate đã được đặt thành " .. userGameSettings.MaxFrameRate)
-            else
-                print("[FPSManager] UserGameSettings không khả dụng.")
-            end
-        end)
-        if success then
-            updateStatus("FPS Cap đã đặt: " .. SETTINGS.targetFps)
-        else
-            warn("[FPSManager] Lỗi khi đặt FPS cap: " .. tostring(err))
-            updateStatus("Lỗi đặt FPS Cap.")
-        end
-    elseif SETTINGS.targetFps and SETTINGS.targetFps <= 0 then
-         print("[FPSManager] FPS mục tiêu <= 0, không giới hạn FPS (hoặc theo mặc định game).")
-         updateStatus("FPS Cap không đổi (mặc định).")
-         -- Cố gắng bỏ giới hạn nếu người dùng muốn
-         local success, err = pcall(function()
-             local userGameSettings = UserSettings:GetService("UserGameSettings")
-             if userGameSettings then
-                 -- Giá trị lớn thường được coi là "không giới hạn"
-                 userGameSettings.MaxFrameRate = 10000 
-                 print("[FPSManager] UserGameSettings.MaxFrameRate đã được đặt thành giá trị rất cao (gỡ bỏ giới hạn).")
-             else
-                 print("[FPSManager] UserGameSettings không khả dụng.")
-             end
-         end)
-         if not success then
-             warn("[FPSManager] Lỗi khi cố gắng gỡ bỏ FPS cap: " .. tostring(err))
-         end
-    else
-        print("[FPSManager] Giới hạn FPS không được đặt (targetFps không phải số hoặc không được cấu hình).")
-    end
+    if SETTINGS.targetFps and type(SETTINGS.targetFps) == "number" then
+        if SETTINGS.targetFps > 0 then
+            print("[FPSManager] Đang cố gắng đặt giới hạn FPS bằng setfpscap(): " .. SETTINGS.targetFps)
+            updateStatus("Đặt FPS Cap: " .. SETTINGS.targetFps)
+            pcall(function()
+                task.spawn(function()
+                    while task.wait() do
+                        setfpscap(SETTINGS.targetFps)
+                    end
+                end)
+                print("[FPSManager] setfpscap() loop đã được khởi động.")
+            end)
+        else -- targetFps <= 0, cố gắng gỡ bỏ giới hạn
+            print("[FPSManager] FPS mục tiêu <= 0, không giới hạn FPS (hoặc theo mặc định game).")
+            updateStatus("FPS Cap không đổi (mặc định).")
+            pcall(function()
+                -- Nếu setfpscap(0) hoặc setfpscap(60) gỡ bỏ giới hạn, bạn có thể thử ở đây.
+                -- Hoặc đơn giản là không chạy vòng lặp setfpscap nếu nó đã chạy.
+                -- Với logic hiện tại, vòng lặp sẽ chỉ chạy nếu targetFps > 0.
+                print("[FPSManager] Không chạy vòng lặp setfpscap() khi targetFps <= 0.")
+            end)
+        end
+    else
+        print("[FPSManager] Giới hạn FPS không được đặt (targetFps không phải số hoặc không được cấu hình).")
+    end
 end
 
 
@@ -316,106 +302,106 @@ local serversUrlBase = "https://games.roblox.com/v1/games/" .. placeId .. "/serv
 local serverHistoryToAvoid -- Sẽ được load trong hàm searchForServer nếu cần
 
 local function listServers(cursor)
-    local requestUrl = serversUrlBase; if cursor then requestUrl = requestUrl.."&cursor="..cursor end
-    local sC, res = pcall(function()return game:HttpGet(requestUrl,true)end)
-    if not sC then print("[SL] HttpGet fail: "..tostring(res));return false,"HttpGet fail: "..tostring(res)end
-    local sD, dRes = pcall(function()return HttpService:JSONDecode(res)end)
-    if not sD then print("[SL] JSONDecode fail: "..tostring(dRes));return false,"JSONDecode fail: "..tostring(dRes)end
-    return true,dRes
+    local requestUrl = serversUrlBase; if cursor then requestUrl = requestUrl.."&cursor="..cursor end
+    local sC, res = pcall(function()return game:HttpGet(requestUrl,true)end)
+    if not sC then print("[SL] HttpGet fail: "..tostring(res));return false,"HttpGet fail: "..tostring(res)end
+    local sD, dRes = pcall(function()return HttpService:JSONDecode(res)end)
+    if not sD then print("[SL] JSONDecode fail: "..tostring(dRes));return false,"JSONDecode fail: "..tostring(dRes)end
+    return true,dRes
 end
 
 function searchForServer()
-    if not SETTINGS.enableFileHistory then -- Nếu file history tắt, luôn bắt đầu với cache rỗng
-        serverHistoryCache = {}
-        print("[SS] File history TẮT, lịch sử server đã làm mới.")
-    elseif not serverHistoryToAvoid then -- Load lần đầu nếu chưa load và file history bật
-         serverHistoryToAvoid = loadServerHistory()
-    end
+    if not SETTINGS.enableFileHistory then -- Nếu file history tắt, luôn bắt đầu với cache rỗng
+        serverHistoryCache = {}
+        print("[SS] File history TẮT, lịch sử server đã làm mới.")
+    elseif not serverHistoryToAvoid then -- Load lần đầu nếu chưa load và file history bật
+         serverHistoryToAvoid = loadServerHistory()
+    end
 
-    print("[SS] searchForServer() BẮT ĐẦU."); local histC=0;for _ in pairs(serverHistoryCache)do histC=histC+1 end
-    updateStatus(string.format("Tìm server (%.0f%%-%.0f%%). Tránh %d.",minPlayerPercentage*100,maxPlayerPercentageLimit*100,histC+1))
-    local sLActive=true;chosenServer=nil
-    while sLActive and not chosenServer do
-        local nextCur=nil;updateStatus("Quét server...");print("[SS] Quét trang.")
-        local allScanned=false
-        while not allScanned and not chosenServer do
-            local pAtt=0;local maxAtt=4;local pFetched=false;local curRetry=baseRetryDelay
-            while not pFetched and pAtt<maxAtt do
-                pAtt=pAtt+1;if pAtt>1 then updateStatus(string.format("Thử lại (%d/%d).Chờ %.1fs",pAtt,maxAtt,curRetry));task.wait(curRetry);curRetry=math.min(curRetry*2,maxRetryDelay) else updateStatus("Lấy trang...")end
-                print("[SS] listServers, cursor: "..tostring(nextCur)); local s,d=listServers(nextCur)
-                if s then
-                    pFetched=true;curRetry=baseRetryDelay;local sListD=d
-                    if sListD and sListD.data then
-                        local pSuitS={};print("[SS] Nhận "..#sListD.data.." sv.")
-                        if #sListD.data>0 then
-                            for _,sInf in ipairs(sListD.data)do local sId=sInf.id
-                                if not(sId==currentJobId or serverHistoryCache[sId])then if sInf.playing and sInf.maxPlayers and sInf.maxPlayers>0 then local pR=sInf.playing/sInf.maxPlayers if pR>=minPlayerPercentage and pR<maxPlayerPercentageLimit and sInf.playing<sInf.maxPlayers then table.insert(pSuitS,sInf)end end end
-                            end
-                            if #pSuitS>0 then updateStatus("Thấy "..#pSuitS.." sv tốt!");chosenServer=pSuitS[math.random(1,#pSuitS)];print("[SS] Chọn: "..chosenServer.id);allScanned=true;break end
-                        end
-                        if not chosenServer then nextCur=sListD.nextPageCursor;if not nextCur then allScanned=true;updateStatus("Hết sv.");print("[SS] Hết cursor.")end end
-                    else updateStatus("Dữ liệu sv lỗi.");print("[SS] Dữ liệu sv lỗi.")end
-                else local eM=tostring(d);local sE=#eM>40 and(string.sub(eM,1,40).."...")or eM;updateStatus("Lỗi API: "..sE);print("[SS] Lỗi API: "..eM);if pAtt>=maxAtt then allScanned=true end end
-            end
-            if chosenServer or allScanned then print("[SS] Thoát quét trang.");break end
-            if pFetched and not allScanned and not chosenServer then print("[SS] Chờ giữa trang.");task.wait(waitTimeBetweenPageFetches)end
-        end
-        if chosenServer then local sId=chosenServer.id and string.sub(tostring(chosenServer.id),1,8)or"N/A";updateStatus(string.format("CHỌN! ID:%s (%d/%d)",sId,chosenServer.playing or 0,chosenServer.maxPlayers or 0));sLActive=false
-        elseif allScanned then updateStatus(string.format("Ko tìm thấy.Chờ %ds.",waitTimeBetweenFullScans));print("[SS] Ko tìm thấy, chờ quét lại.");task.wait(waitTimeBetweenFullScans)end
-    end
-    if chosenServer then updateStatus("Dịch chuyển...");print("[SS] Dịch chuyển đến "..chosenServer.id);addJobIdToHistoryAndSave(currentJobId);task.wait(1)
-        local sTP,eTP=pcall(function()TeleportService:TeleportToPlaceInstance(placeId,chosenServer.id,LocalPlayer)end)
-        if not sTP then local eTpS=tostring(eTP);local sErrTp=#eTpS>40 and(string.sub(eTpS,1,40).."...")or eTpS;updateStatus("Lỗi TP: "..sErrTp);print("[SS] Lỗi TP: "..eTpS);serverHistoryCache[chosenServer.id]=true;print("[SS] Thêm sv lỗi ("..tostring(chosenServer.id)..") vào tránh.");chosenServer=nil;task.wait(5);searchForServer()end
-    else updateStatus("Ko tìm thấy sv. Dừng.");print("[SS] Ko tìm thấy sv. Dừng.")end
-    print("[SS] searchForServer() KẾT THÚC.")
+    print("[SS] searchForServer() BẮT ĐẦU."); local histC=0;for _ in pairs(serverHistoryCache)do histC=histC+1 end
+    updateStatus(string.format("Tìm server (%.0f%%-%.0f%%). Tránh %d.",minPlayerPercentage*100,maxPlayerPercentageLimit*100,histC+1))
+    local sLActive=true;chosenServer=nil
+    while sLActive and not chosenServer do
+        local nextCur=nil;updateStatus("Quét server...");print("[SS] Quét trang.")
+        local allScanned=false
+        while not allScanned and not chosenServer do
+            local pAtt=0;local maxAtt=4;local pFetched=false;local curRetry=baseRetryDelay
+            while not pFetched and pAtt<maxAtt do
+                pAtt=pAtt+1;if pAtt>1 then updateStatus(string.format("Thử lại (%d/%d).Chờ %.1fs",pAtt,maxAtt,curRetry));task.wait(curRetry);curRetry=math.min(curRetry*2,maxRetryDelay) else updateStatus("Lấy trang...")end
+                print("[SS] listServers, cursor: "..tostring(nextCur)); local s,d=listServers(nextCur)
+                if s then
+                    pFetched=true;curRetry=baseRetryDelay;local sListD=d
+                    if sListD and sListD.data then
+                        local pSuitS={};print("[SS] Nhận "..#sListD.data.." sv.")
+                        if #sListD.data>0 then
+                            for _,sInf in ipairs(sListD.data)do local sId=sInf.id
+                                if not(sId==currentJobId or serverHistoryCache[sId])then if sInf.playing and sInf.maxPlayers and sInf.maxPlayers>0 then local pR=sInf.playing/sInf.maxPlayers if pR>=minPlayerPercentage and pR<maxPlayerPercentageLimit and sInf.playing<sInf.maxPlayers then table.insert(pSuitS,sInf)end end end
+                            end
+                            if #pSuitS>0 then updateStatus("Thấy "..#pSuitS.." sv tốt!");chosenServer=pSuitS[math.random(1,#pSuitS)];print("[SS] Chọn: "..chosenServer.id);allScanned=true;break end
+                        end
+                        if not chosenServer then nextCur=sListD.nextPageCursor;if not nextCur then allScanned=true;updateStatus("Hết sv.");print("[SS] Hết cursor.")end end
+                    else updateStatus("Dữ liệu sv lỗi.");print("[SS] Dữ liệu sv lỗi.")end
+                else local eM=tostring(d);local sE=#eM>40 and(string.sub(eM,1,40).."...")or eM;updateStatus("Lỗi API: "..sE);print("[SS] Lỗi API: "..eM);if pAtt>=maxAtt then allScanned=true end end
+            end
+            if chosenServer or allScanned then print("[SS] Thoát quét trang.");break end
+            if pFetched and not allScanned and not chosenServer then print("[SS] Chờ giữa trang.");task.wait(waitTimeBetweenPageFetches)end
+        end
+        if chosenServer then local sId=chosenServer.id and string.sub(tostring(chosenServer.id),1,8)or"N/A";updateStatus(string.format("CHỌN! ID:%s (%d/%d)",sId,chosenServer.playing or 0,chosenServer.maxPlayers or 0));sLActive=false
+        elseif allScanned then updateStatus(string.format("Ko tìm thấy.Chờ %ds.",waitTimeBetweenFullScans));print("[SS] Ko tìm thấy, chờ quét lại.");task.wait(waitTimeBetweenFullScans)end
+    end
+    if chosenServer then updateStatus("Dịch chuyển...");print("[SS] Dịch chuyển đến "..chosenServer.id);addJobIdToHistoryAndSave(currentJobId);task.wait(1)
+        local sTP,eTP=pcall(function()TeleportService:TeleportToPlaceInstance(placeId,chosenServer.id,LocalPlayer)end)
+        if not sTP then local eTpS=tostring(eTP);local sErrTp=#eTpS>40 and(string.sub(eTpS,1,40).."...")or eTpS;updateStatus("Lỗi TP: "..sErrTp);print("[SS] Lỗi TP: "..eTpS);serverHistoryCache[chosenServer.id]=true;print("[SS] Thêm sv lỗi ("..tostring(chosenServer.id)..") vào tránh.");chosenServer=nil;task.wait(5);searchForServer()end
+    else updateStatus("Ko tìm thấy sv. Dừng.");print("[SS] Ko tìm thấy sv. Dừng.")end
+    print("[SS] searchForServer() KẾT THÚC.")
 end
 
 -- --- Quản lý Countdown và Donate ---
 local countdownShouldReset = false
 local currentCountdownThread = nil
 local function performCountdownThenSearch(minutesToWait)
-    print("[CD] performCountdownThenSearch() BẮT ĐẦU " .. minutesToWait .. " phút.")
-    if not minutesToWait or minutesToWait <= 0 then updateStatus("TG chờ lỗi. Tìm ngay..."); searchForServer(); return end
-    local totalS = minutesToWait * 60; print(string.format("[CD] Tìm sau: %d phút %d giây...", math.floor(totalS/60), totalS%60))
-    for i=totalS, 0, -1 do
-        if countdownShouldReset and SETTINGS.enableDonateResetCountdown then 
-            print("[CD] Reset donate (setting cho phép)."); 
-            countdownShouldReset=false; 
-            updateStatus("Donate! Reset."); 
-            startInitialCountdown(); -- Gọi lại hàm để bắt đầu countdown mới
-            return -- Thoát khỏi coroutine hiện tại
-        end
-        if statusTextLabel and statusTextLabel.Parent then statusTextLabel.Text=string.format("%02d:%02d", math.floor(i/60), i%60) end
-        task.wait(1)
-    end
-    updateStatus("Hết giờ! Tìm sv..."); print("[CD] Hết giờ, tìm sv."); searchForServer(); print("[CD] performCountdownThenSearch() KẾT THÚC.")
+    print("[CD] performCountdownThenSearch() BẮT ĐẦU " .. minutesToWait .. " phút.")
+    if not minutesToWait or minutesToWait <= 0 then updateStatus("TG chờ lỗi. Tìm ngay..."); searchForServer(); return end
+    local totalS = minutesToWait * 60; print(string.format("[CD] Tìm sau: %d phút %d giây...", math.floor(totalS/60), totalS%60))
+    for i=totalS, 0, -1 do
+        if countdownShouldReset and SETTINGS.enableDonateResetCountdown then 
+            print("[CD] Reset donate (setting cho phép)."); 
+            countdownShouldReset=false; 
+            updateStatus("Donate! Reset."); 
+            startInitialCountdown(); -- Gọi lại hàm để bắt đầu countdown mới
+            return -- Thoát khỏi coroutine hiện tại
+        end
+        if statusTextLabel and statusTextLabel.Parent then statusTextLabel.Text=string.format("%02d:%02d", math.floor(i/60), i%60) end
+        task.wait(1)
+    end
+    updateStatus("Hết giờ! Tìm sv..."); print("[CD] Hết giờ, tìm sv."); searchForServer(); print("[CD] performCountdownThenSearch() KẾT THÚC.")
 end
 
 function startInitialCountdown()
-    print("[CD] startInitialCountdown() BẮT ĐẦU."); updateStatus("Bắt đầu đếm ngược...")
-    if currentCountdownThread and coroutine.status(currentCountdownThread)~="dead" then 
-        print("[CD] Đóng coroutine cũ.");
-        pcall(coroutine.close,currentCountdownThread); -- Sử dụng pcall để tránh lỗi nếu coroutine đã chết
-        currentCountdownThread=nil 
-    end
-    currentCountdownThread=coroutine.create(function() 
-        print("[CD] Coroutine mới được tạo.");
-        local s,e=pcall(performCountdownThenSearch,DEFAULT_WAIT_MINUTES) 
-        if not s then 
-            warn("[CD] LỖI COROUTINE: "..tostring(e));
-            updateStatus("Lỗi Coroutine.Thử lại 5s...");
-            task.wait(5);
-            if SETTINGS.enableServerHopLogic then -- Chỉ thử lại nếu server hop được bật
-                 startInitialCountdown() 
-            else
-                 print("[CD] Server hop logic bị tắt, không thử lại coroutine.")
-            end
-        else 
-            print("[CD] Coroutine hoàn thành bình thường.")
-        end 
-    end)
-    coroutine.resume(currentCountdownThread); 
-    print("[CD] Coroutine resumed. Status: "..coroutine.status(currentCountdownThread))
+    print("[CD] startInitialCountdown() BẮT ĐẦU."); updateStatus("Bắt đầu đếm ngược...")
+    if currentCountdownThread and coroutine.status(currentCountdownThread)~="dead" then 
+        print("[CD] Đóng coroutine cũ.");
+        pcall(coroutine.close,currentCountdownThread); -- Sử dụng pcall để tránh lỗi nếu coroutine đã chết
+        currentCountdownThread=nil 
+    end
+    currentCountdownThread=coroutine.create(function() 
+        print("[CD] Coroutine mới được tạo.");
+        local s,e=pcall(performCountdownThenSearch,DEFAULT_WAIT_MINUTES) 
+        if not s then 
+            warn("[CD] LỖI COROUTINE: "..tostring(e));
+            updateStatus("Lỗi Coroutine.Thử lại 5s...");
+            task.wait(5);
+            if SETTINGS.enableServerHopLogic then -- Chỉ thử lại nếu server hop được bật
+                 startInitialCountdown() 
+            else
+                 print("[CD] Server hop logic bị tắt, không thử lại coroutine.")
+            end
+        else 
+            print("[CD] Coroutine hoàn thành bình thường.")
+        end 
+    end)
+    coroutine.resume(currentCountdownThread); 
+    print("[CD] Coroutine resumed. Status: "..coroutine.status(currentCountdownThread))
 end
 
 -- --- Khởi chạy Script ---
@@ -426,64 +412,64 @@ task.wait(0.2) -- Chờ một chút để các service khác có thể khởi t�
 -- Áp dụng FPS Cap ngay từ sớm nếu được cấu hình
 applyFpsCap()
 
-updateStatus("Chờ 30 giây cho game tải...")
-print(string.format("[MainInit] Chờ 30s tối ưu hóa. Time: %s", os.date and os.date("%X") or "N/A"))
-task.wait(30)
-print(string.format("[MainInit] HẾT 30 GIÂY CHỜ. Time: %s", os.date and os.date("%X") or "N/A"))
-updateStatus("Hết 30s chờ. Bắt đầu các thiết lập...")
+updateStatus("Chờ 10 giây cho game tải và tối ưu...")
+print(string.format("[MainInit] Chờ 10s tối ưu hóa. Time: %s", os.date and os.date("%X") or "N/A"))
+task.wait(10) -- ĐÃ SỬA: Giảm thời gian chờ xuống 10 giây
+print(string.format("[MainInit] HẾT 10 GIÂY CHỜ. Time: %s", os.date and os.date("%X") or "N/A"))
+updateStatus("Hết 10s chờ. Bắt đầu các thiết lập...")
 
 if SETTINGS.enableSafePlatform then
-    print("[MainInit] Gọi createSafePlatform() (nếu chưa được gọi bởi optimizeGraphics).")
-    if not (SETTINGS.enableGraphicsOptimization and game.Workspace:FindFirstChild(AFK_PLATFORM_NAME)) then -- Chỉ tạo nếu tối ưu đồ họa tắt hoặc platform chưa có
-        createSafePlatform()
-    else
-        print("[MainInit] Platform có thể đã được tạo bởi optimizeGraphics hoặc đã tồn tại.")
-    end
+    print("[MainInit] Gọi createSafePlatform() (nếu chưa được gọi bởi optimizeGraphics).")
+    if not (SETTINGS.enableGraphicsOptimization and game.Workspace:FindFirstChild(AFK_PLATFORM_NAME)) then -- Chỉ tạo nếu tối ưu đồ họa tắt hoặc platform chưa có
+        createSafePlatform()
+    else
+        print("[MainInit] Platform có thể đã được tạo bởi optimizeGraphics hoặc đã tồn tại.")
+    end
 else
-    print("[MainInit] Tạo platform an toàn bị TẮT bởi setting.")
-    updateStatus("Platform an toàn TẮT.")
+    print("[MainInit] Tạo platform an toàn bị TẮT bởi setting.")
+    updateStatus("Platform an toàn TẮT.")
 end
 
 if SETTINGS.enableStaticAfkView then
-    print("[MainInit] Gọi setupStaticAfkView().")
-    setupStaticAfkView()
+    print("[MainInit] Gọi setupStaticAfkView().")
+    setupStaticAfkView()
 else
-    print("[MainInit] setupStaticAfkView bị TẮT bởi setting.")
-    updateStatus("View AFK tĩnh TẮT.")
+    print("[MainInit] setupStaticAfkView bị TẮT bởi setting.")
+    updateStatus("View AFK tĩnh TẮT.")
 end
 
 if SETTINGS.enableGraphicsOptimization then
-    print("[MainInit] Gọi optimizeGraphics().")
-    optimizeGraphics() -- Hàm này cũng sẽ gọi createSafePlatform nếu SETTINGS.enableSafePlatform là true
-    print("[MainInit] optimizeGraphics() ĐÃ GỌI XONG.")
-    updateStatus("Tối ưu đồ họa XONG.")
+    print("[MainInit] Gọi optimizeGraphics().")
+    optimizeGraphics() -- Hàm này cũng sẽ gọi createSafePlatform nếu SETTINGS.enableSafePlatform là true
+    print("[MainInit] optimizeGraphics() ĐÃ GỌI XONG.")
+    updateStatus("Tối ưu đồ họa XONG.")
 else
-    print("[MainInit] optimizeGraphics bị TẮT bởi setting.")
-    updateStatus("Tối ưu đồ họa TẮT.")
+    print("[MainInit] optimizeGraphics bị TẮT bởi setting.")
+    updateStatus("Tối ưu đồ họa TẮT.")
 end
 
 if SETTINGS.enableServerHopLogic then
-    updateStatus("Chuẩn bị đếm ngược để tìm server...")
-    task.wait(0.3)
-    print(string.format("[MainInit] Gọi startInitialCountdown(). Chờ mặc định: %d phút.", DEFAULT_WAIT_MINUTES))
-    startInitialCountdown()
-    print("[MainInit] startInitialCountdown() ĐÃ GỌI XONG.")
+    updateStatus("Chuẩn bị đếm ngược để tìm server...")
+    task.wait(0.3)
+    print(string.format("[MainInit] Gọi startInitialCountdown(). Chờ mặc định: %d phút.", DEFAULT_WAIT_MINUTES))
+    startInitialCountdown()
+    print("[MainInit] startInitialCountdown() ĐÃ GỌI XONG.")
 
-    if SETTINGS.enableDonateResetCountdown then
-        print("[MainInit] Theo dõi donate để reset countdown được BẬT.")
-        local lsSuccess,ls=pcall(function()print("[Donate] WaitForChild leaderstats...");return LocalPlayer:WaitForChild("leaderstats",15)end)
-        if lsSuccess and ls then print("[Donate] Thấy leaderstats.")
-            local rvS,rvO=pcall(function()print("[Donate] WaitForChild Raised...");return ls:WaitForChild("Raised",15)end)
-            if rvS and rvO then print("[Donate] Thấy Raised. Gắn event.")
-                local lastR=rvO.Value;rvO.Changed:Connect(function(nV)if nV>lastR then print("[Donate] Donate! "..lastR.."-> "..nV);updateStatus(string.format("Donate! Raised: %.0f->%.0f",lastR,nV));lastR=nV;countdownShouldReset=true;print("[Donate] Cờ reset countdown đã được đặt.")end end)
-            else print("[Donate] Ko thấy 'Raised' trong leaderstats. Lỗi: "..tostring(rvO))end
-        else print("[Donate] Ko thấy 'leaderstats'. Lỗi: "..tostring(ls))end
-    else
-        print("[MainInit] Theo dõi donate để reset countdown bị TẮT bởi setting.")
-    end
+    if SETTINGS.enableDonateResetCountdown then
+        print("[MainInit] Theo dõi donate để reset countdown được BẬT.")
+        local lsSuccess,ls=pcall(function()print("[Donate] WaitForChild leaderstats...");return LocalPlayer:WaitForChild("leaderstats",15)end)
+        if lsSuccess and ls then print("[Donate] Thấy leaderstats.")
+            local rvS,rvO=pcall(function()print("[Donate] WaitForChild Raised...");return ls:WaitForChild("Raised",15)end)
+            if rvS and rvO then print("[Donate] Thấy Raised. Gắn event.")
+                local lastR=rvO.Value;rvO.Changed:Connect(function(nV)if nV>lastR then print("[Donate] Donate! "..lastR.."-> "..nV);updateStatus(string.format("Donate! Raised: %.0f->%.0f",lastR,nV));lastR=nV;countdownShouldReset=true;print("[Donate] Cờ reset countdown đã được đặt.")end end)
+            else print("[Donate] Ko thấy 'Raised' trong leaderstats. Lỗi: "..tostring(rvO))end
+        else print("[Donate] Ko thấy 'leaderstats'. Lỗi: "..tostring(ls))end
+    else
+        print("[MainInit] Theo dõi donate để reset countdown bị TẮT bởi setting.")
+    end
 else
-    updateStatus("Logic Server Hop TẮT. Script sẽ không tìm server mới.")
-    print("[MainInit] Server Hop bị TẮT bởi setting. Các tác vụ khác (nếu được bật) đã hoàn thành.")
+    updateStatus("Logic Server Hop TẮT. Script sẽ không tìm server mới.")
+    print("[MainInit] Server Hop bị TẮT bởi setting. Các tác vụ khác (nếu được bật) đã hoàn thành.")
 end
 
 print("[MainInit] Script đã hoàn tất khởi chạy chính.")
