@@ -408,11 +408,11 @@ else
 end
 -- --- KẾT THÚC LOGIC FPS MỚI ---
 
-updateStatus("Chờ 30 giây cho game tải...")
-print(string.format("[MainInit] Chờ 30s tối ưu hóa. Time: %s", os.date and os.date("%X") or "N/A"))
-task.wait(30)
-print(string.format("[MainInit] HẾT 30 GIÂY CHỜ. Time: %s", os.date and os.date("%X") or "N/A"))
-updateStatus("Hết 30s chờ. Bắt đầu các thiết lập...")
+updateStatus("Chờ 10 giây cho game tải...")
+print(string.format("[MainInit] Chờ 10s tối ưu hóa. Time: %s", os.date and os.date("%X") or "N/A"))
+task.wait(10)
+print(string.format("[MainInit] HẾT 10 GIÂY CHỜ. Time: %s", os.date and os.date("%X") or "N/A"))
+updateStatus("Hết 10s chờ. Bắt đầu các thiết lập...")
 
 if SETTINGS.enableSafePlatform then
     print("[MainInit] Gọi createSafePlatform() (nếu chưa được gọi bởi optimizeGraphics).")
