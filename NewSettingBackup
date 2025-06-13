@@ -7,7 +7,7 @@ local CoreGui = game:GetService("CoreGui")
 local Lighting = game:GetService("Lighting")
 local SoundService = game:GetService("SoundService")
 local RunService = game:GetService("RunService")
-local UserSettings = UserSettings() -- Thêm UserSettings để quản lý FPS
+-- ĐÃ XÓA: UserSettings service không còn cần thiết
 
 -- --- Cấu hình Script ---
 local placeId = game.PlaceId
@@ -35,13 +35,13 @@ local FIXED_TEXT_SIZE = 50
 -- Tại đây bạn có thể bật (true) hoặc tắt (false) các tính năng của script
 -- và cài đặt FPS mục tiêu.
 local SETTINGS = {
-    enableSafePlatform = true,          -- true: Tạo platform an toàn khi AFK. false: Không tạo.
-    enableStaticAfkView = true,         -- true: Thiết lập camera tĩnh nhìn vào màn hình đen khi AFK. false: Không thay đổi camera.
-    enableGraphicsOptimization = true,  -- true: Tối ưu hóa đồ họa (xóa vật thể, giảm chất lượng...). false: Không tối ưu.
-    enableServerHopLogic = true,        -- true: Kích hoạt toàn bộ logic tìm và chuyển server. false: Chỉ thực hiện các tác vụ trên (platform, view, optimize) rồi dừng.
-    enableFileHistory = true,           -- true: Sử dụng file để lưu và tránh các server đã vào. false: Không dùng file (chỉ tránh server hiện tại).
-    enableDonateResetCountdown = true,  -- true: Reset thời gian đếm ngược khi có donate. false: Không reset.
-    targetFps = 5                       -- Đặt FPS mục tiêu. Ví dụ: 5, 15, 30, 60. Đặt là 0 hoặc số âm để không giới hạn (theo mặc định game).
+    enableSafePlatform = true,      -- true: Tạo platform an toàn khi AFK. false: Không tạo.
+    enableStaticAfkView = true,     -- true: Thiết lập camera tĩnh nhìn vào màn hình đen khi AFK. false: Không thay đổi camera.
+    enableGraphicsOptimization = true, -- true: Tối ưu hóa đồ họa (xóa vật thể, giảm chất lượng...). false: Không tối ưu.
+    enableServerHopLogic = true,    -- true: Kích hoạt toàn bộ logic tìm và chuyển server. false: Chỉ thực hiện các tác vụ trên (platform, view, optimize) rồi dừng.
+    enableFileHistory = true,       -- true: Sử dụng file để lưu và tránh các server đã vào. false: Không dùng file (chỉ tránh server hiện tại).
+    enableDonateResetCountdown = true, -- true: Reset thời gian đếm ngược khi có donate. false: Không reset.
+    targetFps = 5                   -- Đặt FPS mục tiêu. Ví dụ: 5, 15, 30, 60. Đặt là 0 hoặc số âm để không giới hạn.
 }
 -- --- Kết thúc Setting ---
 
@@ -267,50 +267,8 @@ local function optimizeGraphics()
     print("[Optimizer] optimizeGraphics() KẾT THÚC.")
 end
 
--- --- Hàm Thiết Lập Giới Hạn FPS ---
-local function applyFpsCap()
-    if SETTINGS.targetFps and type(SETTINGS.targetFps) == "number" and SETTINGS.targetFps > 0 then
-        print("[FPSManager] Đang cố gắng đặt giới hạn FPS thành: " .. SETTINGS.targetFps)
-        updateStatus("Đặt FPS Cap: " .. SETTINGS.targetFps)
-        local success, err = pcall(function()
-            local userGameSettings = UserSettings:GetService("UserGameSettings")
-            if userGameSettings then
-                userGameSettings.MaxFrameRate = SETTINGS.targetFps
-                print("[FPSManager] UserGameSettings.MaxFrameRate đã được đặt thành " .. userGameSettings.MaxFrameRate)
-                 -- Đôi khi cần thay đổi QualityLevel để MaxFrameRate được áp dụng ngay, nhưng không phải lúc nào cũng cần.
-                -- userGameSettings.SavedQualityLevel = Enum.SavedQualityLevel.Automatic 
-            else
-                print("[FPSManager] UserGameSettings không khả dụng.")
-            end
-        end)
-        if success then
-            updateStatus("FPS Cap đã đặt: " .. SETTINGS.targetFps)
-        else
-            warn("[FPSManager] Lỗi khi đặt FPS cap: " .. tostring(err))
-            updateStatus("Lỗi đặt FPS Cap.")
-        end
-    elseif SETTINGS.targetFps and SETTINGS.targetFps <= 0 then
-         print("[FPSManager] FPS mục tiêu <= 0, không giới hạn FPS (hoặc theo mặc định game).")
-         updateStatus("FPS Cap không đổi (mặc định).")
-         -- Cố gắng bỏ giới hạn nếu người dùng muốn
-         local success, err = pcall(function()
-            local userGameSettings = UserSettings:GetService("UserGameSettings")
-            if userGameSettings then
-                -- Giá trị lớn thường được coi là "không giới hạn"
-                userGameSettings.MaxFrameRate = 10000 
-                print("[FPSManager] UserGameSettings.MaxFrameRate đã được đặt thành giá trị rất cao (gỡ bỏ giới hạn).")
-            else
-                print("[FPSManager] UserGameSettings không khả dụng.")
-            end
-        end)
-        if not success then
-            warn("[FPSManager] Lỗi khi cố gắng gỡ bỏ FPS cap: " .. tostring(err))
-        end
-    else
-        print("[FPSManager] Giới hạn FPS không được đặt (targetFps không phải số hoặc không được cấu hình).")
-    end
-end
-
+-- --- ĐÃ XÓA: Hàm Thiết Lập Giới Hạn FPS cũ ---
+-- Hàm applyFpsCap() đã được loại bỏ và thay thế bằng logic vòng lặp bên dưới.
 
 -- --- Logic Tìm Server (Dùng HttpGet) ---
 local chosenServer = nil
@@ -331,7 +289,7 @@ function searchForServer()
         serverHistoryCache = {}
         print("[SS] File history TẮT, lịch sử server đã làm mới.")
     elseif not serverHistoryToAvoid then -- Load lần đầu nếu chưa load và file history bật
-         serverHistoryToAvoid = loadServerHistory()
+        serverHistoryToAvoid = loadServerHistory()
     end
 
     print("[SS] searchForServer() BẮT ĐẦU."); local histC=0;for _ in pairs(serverHistoryCache)do histC=histC+1 end
@@ -393,7 +351,7 @@ local function performCountdownThenSearch(minutesToWait)
     updateStatus("Hết giờ! Tìm sv..."); print("[CD] Hết giờ, tìm sv."); searchForServer(); print("[CD] performCountdownThenSearch() KẾT THÚC.")
 end
 
-local function startInitialCountdown()
+function startInitialCountdown()
     print("[CD] startInitialCountdown() BẮT ĐẦU."); updateStatus("Bắt đầu đếm ngược...")
     if currentCountdownThread and coroutine.status(currentCountdownThread)~="dead" then 
         print("[CD] Đóng coroutine cũ.");
@@ -408,7 +366,7 @@ local function startInitialCountdown()
             updateStatus("Lỗi Coroutine.Thử lại 5s...");
             task.wait(5);
             if SETTINGS.enableServerHopLogic then -- Chỉ thử lại nếu server hop được bật
-                 startInitialCountdown() 
+                startInitialCountdown() 
             else
                 print("[CD] Server hop logic bị tắt, không thử lại coroutine.")
             end
@@ -425,8 +383,30 @@ print("[MainInit] Script BẮT ĐẦU KHỞI CHẠY.")
 updateStatus("Khởi tạo ServerHop...")
 task.wait(0.2) -- Chờ một chút để các service khác có thể khởi tạo
 
--- Áp dụng FPS Cap ngay từ sớm nếu được cấu hình
-applyFpsCap()
+-- --- LOGIC GIỚI HẠN FPS MỚI (Vòng lặp liên tục) ---
+-- Logic này sẽ chạy trong một thread riêng để liên tục đặt giới hạn FPS
+-- mà không làm ảnh hưởng đến các phần khác của script.
+-- Yêu cầu phải có hàm global `setfpscap(number)` trong môi trường thực thi.
+if type(setfpscap) == "function" then
+    if SETTINGS.targetFps and type(SETTINGS.targetFps) == "number" and SETTINGS.targetFps > 0 then
+        print("[FPSManager] Kích hoạt vòng lặp giới hạn FPS liên tục tại: " .. SETTINGS.targetFps)
+        updateStatus("FPS Cap liên tục: " .. SETTINGS.targetFps)
+        -- Sử dụng task.spawn để chạy vòng lặp trong một thread mới, không chặn script chính
+        task.spawn(function()
+            while task.wait() do
+                -- Sử dụng pcall để tránh lỗi nếu hàm setfpscap gặp vấn đề
+                pcall(setfpscap, SETTINGS.targetFps)
+            end
+        end)
+    else
+        print("[FPSManager] Giới hạn FPS không được cấu hình hoặc giá trị không hợp lệ. Vòng lặp sẽ không chạy.")
+        updateStatus("FPS Cap không được kích hoạt.")
+    end
+else
+    print("[FPSManager] CẢNH BÁO: Hàm 'setfpscap' không tồn tại! Không thể giới hạn FPS.")
+    updateStatus("Lỗi: Không tìm thấy setfpscap().")
+end
+-- --- KẾT THÚC LOGIC FPS MỚI ---
 
 updateStatus("Chờ 30 giây cho game tải...")
 print(string.format("[MainInit] Chờ 30s tối ưu hóa. Time: %s", os.date and os.date("%X") or "N/A"))
@@ -489,4 +469,3 @@ else
 end
 
 print("[MainInit] Script đã hoàn tất khởi chạy chính.")
-
