@@ -38,7 +38,7 @@ local SETTINGS = {
     enableServerHopLogic = true,
     enableFileHistory = true,
     enableDonateResetCountdown = true,
-    targetFps = 10
+    targetFps = 7
 }
 -- --- Kết thúc Setting ---
 
