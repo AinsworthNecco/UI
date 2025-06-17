@@ -27,9 +27,6 @@ local AFK_PLATFORM_NAME = "MySafeAFKPlatform"
 local STATIC_HEAD_ANCHOR_PART_NAME = "AFK_HeadAnchor_StaticCam"
 local STATIC_BLACK_SCREEN_PART_NAME = "AFK_BlackScreen_StaticCam"
 
--- [[ NEW CONFIG FOR FIXED TEXT SIZE ]] -- KHÔNG CÒN SỬ DỤNG
--- local FIXED_TEXT_SIZE = 50 -- Đã bị loại bỏ
-
 -- --- Setting (Cài đặt Tính năng) ---
 local SETTINGS = {
     enableSafePlatform = true,
@@ -38,16 +35,20 @@ local SETTINGS = {
     enableServerHopLogic = true,
     enableFileHistory = true,
     enableDonateResetCountdown = true,
-    targetFps = 7
+    targetFps = 7,
+    -- [[ MỚI: CHỌN CHẾ ĐỘ HIỂN THỊ ]] --
+    -- 1 = Hiển thị số đếm ngược (Text Countdown)
+    -- 2 = Hiển thị màn hình màu nhấp nháy (Color Flash)
+    countdownDisplayMode = 2
 }
 -- --- Kết thúc Setting ---
 
 -- --- [[ MỚI ]] Bảng màu Neon cho các trạng thái ---
 local NEON_COLORS = {
-    GREEN = Color3.fromRGB(10, 255, 20),   -- Xanh lá cho trạng thái bình thường/thành công
-    YELLOW = Color3.fromRGB(255, 255, 0), -- Vàng cho lỗi
-    BLUE = Color3.fromRGB(0, 150, 255),   -- Xanh dương cho đếm ngược
-    RED = Color3.fromRGB(255, 20, 20)     -- Đỏ cho đếm ngược
+    GREEN = Color3.fromRGB(10, 255, 20),
+    YELLOW = Color3.fromRGB(255, 255, 0),
+    BLUE = Color3.fromRGB(0, 150, 255),
+    RED = Color3.fromRGB(255, 20, 20)
 }
 
 -- --- Kiểm tra và gán hàm đọc/ghi file ---
@@ -55,330 +56,226 @@ local canAccessFiles = false
 local writefile_func, readfile_func
 if SETTINGS.enableFileHistory then
     pcall(function()
-        if writefile and readfile then
-            canAccessFiles = true
-            writefile_func = writefile
-            readfile_func = readfile
-            print("[FileIO] Quyền writefile/readfile có sẵn.")
-        else
-            print("[FileIO] Quyền writefile/readfile KHÔNG có sẵn.")
-        end
+        if writefile and readfile then canAccessFiles, writefile_func, readfile_func = true, writefile, readfile; print("[FileIO] Quyền file có sẵn.") else print("[FileIO] Quyền file KHÔNG có sẵn.") end
     end)
 else
-    print("[FileIO] Tính năng lịch sử file bị TẮT trong settings.")
+    print("[FileIO] Lịch sử file bị TẮT.")
 end
 
 
--- --- [[ ĐÃ THAY ĐỔI ]] UI Chính (Màn hình trạng thái màu) ---
+-- --- [[ ĐÃ THAY ĐỔI ]] UI Chính (Hỗ trợ cả 2 chế độ) ---
 local playerGui = LocalPlayer:WaitForChild("PlayerGui")
 local statusScreenGui = playerGui:FindFirstChild(SERVER_HOP_GUI_NAME)
 if statusScreenGui then statusScreenGui:Destroy() end
 statusScreenGui = Instance.new("ScreenGui")
 statusScreenGui.Name = SERVER_HOP_GUI_NAME
-statusScreenGui.ResetOnSpawn = false
-statusScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-statusScreenGui.IgnoreGuiInset = true
+statusScreenGui.ResetOnSpawn, statusScreenGui.ZIndexBehavior, statusScreenGui.IgnoreGuiInset = false, Enum.ZIndexBehavior.Sibling, true
 statusScreenGui.Parent = playerGui
 
--- Thay vì TextLabel, chúng ta dùng một Frame toàn màn hình
+-- Frame cho chế độ MÀU
 local statusFrame = Instance.new("Frame")
 statusFrame.Name = "StatusFrame"
-statusFrame.Size = UDim2.new(1, 0, 1, 0) -- Kích thước toàn màn hình
-statusFrame.Position = UDim2.new(0, 0, 0, 0)
-statusFrame.BackgroundColor3 = NEON_COLORS.GREEN -- Màu mặc định
-statusFrame.BorderColor3 = Color3.new(0,0,0)
-statusFrame.BorderSizePixel = 0
+statusFrame.Size = UDim2.new(1, 0, 1, 0)
+statusFrame.BackgroundColor3, statusFrame.BorderSizePixel = NEON_COLORS.GREEN, 0
 statusFrame.BackgroundTransparency = 1 -- Ban đầu trong suốt
 statusFrame.Parent = statusScreenGui
 
--- --- [[ HÀM MỚI ]] Hàm cập nhật trạng thái màn hình ---
-local function updateScreenState(state, message)
-    local msgStr = "[UI] " .. tostring(message)
-    print(msgStr) -- Luôn in log ra console
+-- TextLabel cho chế độ SỐ
+local FIXED_TEXT_SIZE = 50
+local statusTextLabel = Instance.new("TextLabel")
+statusTextLabel.Name = "StatusLabel"
+statusTextLabel.Size = UDim2.new(0.9, 0, 0, FIXED_TEXT_SIZE + 40)
+statusTextLabel.Position = UDim2.new(0.5, 0, 0.5, 0); statusTextLabel.AnchorPoint = Vector2.new(0.5, 0.5)
+statusTextLabel.BackgroundTransparency = 1; statusTextLabel.TextColor3 = Color3.new(1, 1, 1)
+statusTextLabel.Font = Enum.Font.SourceSansSemibold; statusTextLabel.TextScaled = false
+statusTextLabel.TextSize = FIXED_TEXT_SIZE; statusTextLabel.TextXAlignment, statusTextLabel.TextYAlignment = Enum.TextXAlignment.Center, Enum.TextYAlignment.Center
+statusTextLabel.TextWrapped = true; statusTextLabel.Text = "..."
+statusTextLabel.Parent = statusScreenGui
 
-    if not statusFrame or not statusFrame.Parent then return end
 
-    if state == "ERROR" then
-        statusFrame.BackgroundColor3 = NEON_COLORS.YELLOW
-        statusFrame.BackgroundTransparency = 0.5 -- Hiện màu vàng (hơi trong suốt)
-    elseif state == "COUNTDOWN_FLASH" then
-        -- Trường hợp này được xử lý đặc biệt trong vòng lặp đếm ngược
-        -- Không cần làm gì ở đây, chỉ để logic rõ ràng
-    else -- Mặc định là "SUCCESS" hoặc các trạng thái thông tin khác
-        statusFrame.BackgroundColor3 = NEON_COLORS.GREEN
-        statusFrame.BackgroundTransparency = 0.5 -- Hiện màu xanh lá (hơi trong suốt)
+-- --- [[ ĐÃ THAY ĐỔI ]] Hàm cập nhật UI chung ---
+local function updateDisplay(state, message)
+    print("[UI] ("..tostring(state)..") " .. tostring(message))
+    
+    if SETTINGS.countdownDisplayMode == 1 then -- Chế độ VĂN BẢN
+        if statusTextLabel and statusTextLabel.Parent then
+            statusTextLabel.Text = tostring(message)
+            if state == "ERROR" then statusTextLabel.TextColor3 = NEON_COLORS.YELLOW else statusTextLabel.TextColor3 = NEON_COLORS.GREEN end
+        end
+    elseif SETTINGS.countdownDisplayMode == 2 then -- Chế độ MÀU
+        if statusFrame and statusFrame.Parent then
+             -- Chỉ hiện màu nền cho các trạng thái quan trọng, không phải lúc đếm ngược
+            if state == "ERROR" then
+                statusFrame.BackgroundColor3 = NEON_COLORS.YELLOW
+                statusFrame.BackgroundTransparency = 0.5
+            elseif state == "SUCCESS" then
+                statusFrame.BackgroundColor3 = NEON_COLORS.GREEN
+                statusFrame.BackgroundTransparency = 0.5
+            else -- Ẩn đi cho các trạng thái thông tin khác
+                statusFrame.BackgroundTransparency = 1
+            end
+        end
     end
 end
-
 
 -- --- Hàm xử lý file cho LỊCH SỬ server ---
 local serverHistoryCache = {}
 local function loadServerHistory()
-    print("[FileIO] loadServerHistory() BẮT ĐẦU.")
-    if not canAccessFiles then print("[FileIO] Không có quyền truy cập file."); return {} end
+    if not canAccessFiles then return {} end
     local historySet = {}; local s, c = pcall(readfile_func, SERVER_HISTORY_FILENAME)
-    if s and c then local lC=0; for line in string.gmatch(c,"[^".."\r\n".."]+")do local tL=line:match("^%s*(.-)%s*$") if tL and #tL>0 then historySet[tL]=true;lC=lC+1;end end print("[FileIO] Đã tải "..lC.." server.")
-    else print("[FileIO] Lỗi đọc/không có file lịch sử: "..tostring(c)) end
+    if s and c then for line in string.gmatch(c,"[^".."\r\n".."]+") do local tL=line:match("^%s*(.-)%s*$") if tL and #tL>0 then historySet[tL]=true;end end end
     serverHistoryCache=historySet; return historySet
 end
 local function addJobIdToHistoryAndSave(jId)
-    print("[FileIO] addJobIdToHistoryAndSave() JobId: "..tostring(jId))
-    if not jId or not canAccessFiles then print("[FileIO] Không thêm JobId.");return end
+    if not jId or not canAccessFiles then return end
     serverHistoryCache[jId]=true; local l={}; for id in pairs(serverHistoryCache)do table.insert(l,id)end
-    local sS,eR=pcall(writefile_func,SERVER_HISTORY_FILENAME,table.concat(l,"\n"))
-    if sS then print("[FileIO] Đã cập nhật lịch sử.") else print("[FileIO] Lỗi lưu: "..tostring(eR)) end
+    pcall(writefile_func,SERVER_HISTORY_FILENAME,table.concat(l,"\n"))
 end
 
 -- --- Hàm Tạo Platform An Toàn ---
 local function createSafePlatform()
-    print("[Platform] createSafePlatform() BẮT ĐẦU."); updateScreenState("SUCCESS", "Đang tạo platform...")
-    if game.Workspace:FindFirstChild(AFK_PLATFORM_NAME)then print("[Platform] Platform đã tồn tại.");updateScreenState("SUCCESS", "Platform đã có.");return game.Workspace:FindFirstChild(AFK_PLATFORM_NAME)end
-    print("[Platform] Đang tạo Part platform..."); local p=Instance.new("Part");p.Name=AFK_PLATFORM_NAME;p.Anchored=true;p.CanCollide=true;p.Size=Vector3.new(20000,40,20000);p.Color=Color3.fromRGB(50,50,50);p.Material=Enum.Material.Concrete;p.TopSurface=Enum.SurfaceType.Smooth;p.BottomSurface=Enum.SurfaceType.Smooth;p.Transparency=0
+    updateDisplay("INFO", "Đang tạo platform...")
+    if game.Workspace:FindFirstChild(AFK_PLATFORM_NAME) then updateDisplay("INFO", "Platform đã có."); return end
+    local p=Instance.new("Part");p.Name=AFK_PLATFORM_NAME;p.Anchored=true;p.CanCollide=true;p.Size=Vector3.new(20000,40,20000);p.Color=Color3.fromRGB(50,50,50);p.Transparency=0;
     local char=LocalPlayer.Character; local hum=char and char:FindFirstChildOfClass("Humanoid"); local hrp=char and char:FindFirstChild("HumanoidRootPart")
-    if hum and hrp then
-        local hrpP=hrp.Position;local hrpSY=hrp.Size.Y;local hipH=hum.HipHeight;local fCIY=hrpP.Y-(hrpSY/2)-hipH;local pTTY=fCIY-PLATFORM_VERTICAL_OFFSET;local pCY=pTTY-(p.Size.Y/2)
-        p.Position=Vector3.new(hrpP.X,pCY,hrpP.Z)
-    else
-        print("[Platform] KHÔNG tìm HRP/Humanoid. Đặt mặc định.");p.Position=Vector3.new(0,-30-PLATFORM_VERTICAL_OFFSET,0)
-    end
-    p.Parent=game.Workspace;print("[Platform] Platform ĐÃ TẠO.");updateScreenState("SUCCESS", "Platform đã tạo.");return p
+    if hum and hrp then local hrpP=hrp.Position;local hrpSY=hrp.Size.Y;local hipH=hum.HipHeight;local fCIY=hrpP.Y-(hrpSY/2)-hipH;local pTTY=fCIY-PLATFORM_VERTICAL_OFFSET;local pCY=pTTY-(p.Size.Y/2);p.Position=Vector3.new(hrpP.X,pCY,hrpP.Z); else p.Position=Vector3.new(0,-30-PLATFORM_VERTICAL_OFFSET,0); end
+    p.Parent=game.Workspace; updateDisplay("SUCCESS", "Platform đã tạo.");
 end
 
 -- --- Hàm Thiết Lập View AFK Tĩnh ---
 local function setupStaticAfkView()
-    print("[StaticView] Bắt đầu thiết lập view AFK tĩnh..."); updateScreenState("SUCCESS", "Thiết lập view AFK tĩnh...")
+    updateDisplay("INFO", "Thiết lập view AFK tĩnh...")
     local player = LocalPlayer; local character = player.Character or player.CharacterAdded:Wait()
-    if not character then print("[StaticView] KHÔNG THỂ LẤY NHÂN VẬT."); return end
-    local head = character:WaitForChild("Head", 10)
-    if not head then print("[StaticView] KHÔNG tìm thấy Head."); return end
-    local camera = workspace.CurrentCamera; if not camera then print("[StaticView] Camera không tồn tại."); return end
+    if not character then return end
+    local head = character:WaitForChild("Head", 10); if not head then return end
+    local camera = workspace.CurrentCamera; if not camera then return end
     local staticHeadAnchor = workspace:FindFirstChild(STATIC_HEAD_ANCHOR_PART_NAME) or Instance.new("Part"); staticHeadAnchor.Name=STATIC_HEAD_ANCHOR_PART_NAME; staticHeadAnchor.Size=Vector3.new(0.1,0.1,0.1); staticHeadAnchor.Transparency=1; staticHeadAnchor.CanCollide=false; staticHeadAnchor.Parent=workspace
     staticHeadAnchor.CFrame = CFrame.new(head.Position); staticHeadAnchor.Anchored = true
-    local blackTarget = workspace:FindFirstChild(STATIC_BLACK_SCREEN_PART_NAME) or Instance.new("Part"); blackTarget.Name=STATIC_BLACK_SCREEN_PART_NAME; blackTarget.Size=Vector3.new(2500,2500,10); blackTarget.Color=Color3.new(0,0,0); blackTarget.Material=Enum.Material.Plastic; blackTarget.Transparency=0; blackTarget.CanCollide=false; blackTarget.Parent=workspace
+    local blackTarget = workspace:FindFirstChild(STATIC_BLACK_SCREEN_PART_NAME) or Instance.new("Part"); blackTarget.Name=STATIC_BLACK_SCREEN_PART_NAME; blackTarget.Size=Vector3.new(2500,2500,10); blackTarget.Color=Color3.new(0,0,0); blackTarget.CanCollide=false; blackTarget.Parent=workspace
     local eastPositionFromAnchor = staticHeadAnchor.Position + Vector3.new(150,0,0); blackTarget.CFrame=CFrame.new(eastPositionFromAnchor); blackTarget.Anchored=true
     camera.CameraType=Enum.CameraType.Scriptable; camera.CFrame=CFrame.new(staticHeadAnchor.Position,blackTarget.Position); camera.Focus=blackTarget.CFrame
-    updateScreenState("SUCCESS", "View AFK tĩnh đã thiết lập.")
+    updateDisplay("SUCCESS", "View AFK tĩnh đã thiết lập.")
 end
 
 -- --- Script Tối Ưu Hóa Đồ Họa ---
 local function optimizeGraphics()
-    print("[Optimizer] optimizeGraphics() BẮT ĐẦU."); updateScreenState("SUCCESS", "Bắt đầu tối ưu đồ họa...")
-    if SETTINGS.enableSafePlatform then createSafePlatform(); end
-    task.wait(0.1)
+    updateDisplay("INFO", "Bắt đầu tối ưu đồ họa...")
+    if SETTINGS.enableSafePlatform then createSafePlatform(); end; task.wait(0.1)
     local sP, eP = pcall(function()
-        updateScreenState("SUCCESS", "Tối ưu (XÓA MẠNH, GIỮ CAMERA)...")
-        local itemsToDel={}; if not LocalPlayer.Character then print("[Opt] CẢNH BÁO: Char nil khi xóa!") end
-        for _,item in pairs(game.Workspace:GetChildren()) do
-            local isChar = LocalPlayer.Character and item.Name == LocalPlayer.Character.Name
-            local isSafePlatform = item.Name == AFK_PLATFORM_NAME
-            local isCamera = item == workspace.CurrentCamera
-            local isStaticHeadAnchor = item.Name == STATIC_HEAD_ANCHOR_PART_NAME
-            local isStaticBlackScreen = item.Name == STATIC_BLACK_SCREEN_PART_NAME
-            local keepItem = isChar or isCamera
-            if SETTINGS.enableSafePlatform then keepItem = keepItem or isSafePlatform end
-            if SETTINGS.enableStaticAfkView then keepItem = keepItem or isStaticHeadAnchor or isStaticBlackScreen end
-            if not keepItem then table.insert(itemsToDel, item) end
+        local itemsToDel={}; for _,item in pairs(game.Workspace:GetChildren()) do
+            local keep = (LocalPlayer.Character and item.Name==LocalPlayer.Character.Name) or (item==workspace.CurrentCamera) or (SETTINGS.enableSafePlatform and item.Name==AFK_PLATFORM_NAME) or (SETTINGS.enableStaticAfkView and (item.Name==STATIC_HEAD_ANCHOR_PART_NAME or item.Name==STATIC_BLACK_SCREEN_PART_NAME))
+            if not keep then table.insert(itemsToDel,item) end
         end
-        for _,item in ipairs(itemsToDel) do pcall(function()item:Destroy()end) end
-        updateScreenState("SUCCESS", "Đã xóa đối tượng thừa.")
-        Lighting.GlobalShadows=false;Lighting.Brightness=0;Lighting.Ambient=Color3.new(0,0,0);Lighting.OutdoorAmbient=Color3.new(0,0,0);Lighting.ClockTime=12;Lighting.FogEnd=1e9;Lighting.FogStart=1e9-1;Lighting.ExposureCompensation=-2
-        pcall(function()local atm=Lighting:FindFirstChild("Atmosphere");if atm then atm:Destroy()end end); pcall(function()local sky=Lighting:FindFirstChild("Sky");if sky then sky:Destroy()end end)
-        if LocalPlayer:FindFirstChild("PlayerGui")then for _,gui in pairs(LocalPlayer.PlayerGui:GetChildren())do if gui.Name~=SERVER_HOP_GUI_NAME then pcall(function()gui:Destroy()end)end end end
-        local sS,sO=pcall(function()return settings()end)
-        if sS and sO and sO.Rendering then sO.Rendering.QualityLevel=Enum.QualityLevel.Level01; pcall(function() if RunService:IsClient() then RunService:Set3dRenderingEnabled(false) end end) end
-        SoundService.RespectFilteringEnabled=true;SoundService.AmbientReverb=Enum.ReverbType.NoReverb
-        for _,sound in pairs(game:GetDescendants())do if sound:IsA("Sound")then pcall(function()sound.Volume=0;sound:Stop()end)end end
-        updateScreenState("SUCCESS", "Đồ họa đã được tối ưu.");
+        for _,item in ipairs(itemsToDel) do pcall(function() item:Destroy() end) end
+        Lighting.GlobalShadows,Lighting.Brightness,Lighting.Ambient,Lighting.OutdoorAmbient,Lighting.ExposureCompensation=false,0,Color3.new(0,0,0),Color3.new(0,0,0),-2;
+        pcall(function() Lighting.Atmosphere:Destroy() end); pcall(function() Lighting.Sky:Destroy() end)
+        if LocalPlayer.PlayerGui then for _,gui in pairs(LocalPlayer.PlayerGui:GetChildren()) do if gui.Name~=SERVER_HOP_GUI_NAME then pcall(function() gui:Destroy() end) end end end
+        local sO=settings(); if sO and sO.Rendering then sO.Rendering.QualityLevel=Enum.QualityLevel.Level01; pcall(function() if RunService:IsClient() then RunService:Set3dRenderingEnabled(false) end end) end
+        SoundService.RespectFilteringEnabled,SoundService.AmbientReverb=true,Enum.ReverbType.NoReverb; for _,sound in pairs(game:GetDescendants())do if sound:IsA("Sound") then sound.Volume=0;sound:Stop() end end
+        updateDisplay("SUCCESS", "Đồ họa đã được tối ưu.");
     end)
-    if not sP then warn("[Opt] LỖI PCALL optimizeGraphics: "..tostring(eP)); updateScreenState("ERROR", "Lỗi khi tối ưu đồ họa.") end
+    if not sP then updateDisplay("ERROR", "Lỗi khi tối ưu đồ họa.") end
 end
 
 -- --- Logic Tìm Server (Dùng HttpGet) ---
-local chosenServer = nil
-local serversUrlBase = "https://games.roblox.com/v1/games/" .. placeId .. "/servers/Public?sortOrder=Asc&limit=100"
-local serverHistoryToAvoid
-
-local function listServers(cursor)
-    local requestUrl = serversUrlBase; if cursor then requestUrl = requestUrl.."&cursor="..cursor end
-    local sC, res = pcall(function()return game:HttpGet(requestUrl,true)end)
-    if not sC then print("[SL] HttpGet fail: "..tostring(res));return false,"HttpGet fail: "..tostring(res)end
-    local sD, dRes = pcall(function()return HttpService:JSONDecode(res)end)
-    if not sD then print("[SL] JSONDecode fail: "..tostring(dRes));return false,"JSONDecode fail: "..tostring(dRes)end
-    return true,dRes
-end
-
+local chosenServer = nil; local serversUrlBase = "https://games.roblox.com/v1/games/" .. placeId .. "/servers/Public?sortOrder=Asc&limit=100"
 function searchForServer()
-    if not SETTINGS.enableFileHistory then serverHistoryCache = {}
-    elseif not serverHistoryToAvoid then serverHistoryToAvoid = loadServerHistory() end
-
+    if not SETTINGS.enableFileHistory then serverHistoryCache = {} else loadServerHistory() end
     local histC=0;for _ in pairs(serverHistoryCache)do histC=histC+1 end
-    updateScreenState("SUCCESS", string.format("Tìm server (%.0f%%-%.0f%%). Tránh %d.",minPlayerPercentage*100,maxPlayerPercentageLimit*100,histC+1))
+    updateDisplay("INFO", string.format("Bắt đầu tìm server... (Tránh %d)",histC+1))
     
-    local sLActive=true;chosenServer=nil
+    local sLActive=true; chosenServer=nil
     while sLActive and not chosenServer do
-        local nextCur=nil; updateScreenState("SUCCESS", "Đang quét danh sách server...")
+        local nextCur=nil; updateDisplay("INFO", "Đang quét danh sách server...")
         local allScanned=false
         while not allScanned and not chosenServer do
             local pAtt=0;local maxAtt=4;local pFetched=false;local curRetry=baseRetryDelay
             while not pFetched and pAtt<maxAtt do
-                pAtt=pAtt+1;if pAtt>1 then updateScreenState("SUCCESS", string.format("Thử lại (%d/%d)...",pAtt,maxAtt));task.wait(curRetry);curRetry=math.min(curRetry*2,maxRetryDelay) else updateScreenState("SUCCESS", "Đang lấy trang server...")end
-                local s,d=listServers(nextCur)
+                pAtt=pAtt+1;if pAtt>1 then updateDisplay("INFO", string.format("Thử lại (%d/%d)...",pAtt,maxAtt));task.wait(curRetry);curRetry=math.min(curRetry*2,maxRetryDelay) end
+                local s,d = pcall(game.HttpGet, game, serversUrlBase .. (nextCur and "&cursor="..nextCur or ""), true)
                 if s then
-                    pFetched=true;curRetry=baseRetryDelay;local sListD=d
-                    if sListD and sListD.data then
-                        local pSuitS={};
-                        if #sListD.data>0 then
-                            for _,sInf in ipairs(sListD.data)do local sId=sInf.id
-                                if not(sId==currentJobId or serverHistoryCache[sId])then if sInf.playing and sInf.maxPlayers and sInf.maxPlayers>0 then local pR=sInf.playing/sInf.maxPlayers if pR>=minPlayerPercentage and pR<maxPlayerPercentageLimit and sInf.playing<sInf.maxPlayers then table.insert(pSuitS,sInf)end end end
-                            end
-                            if #pSuitS>0 then updateScreenState("SUCCESS", "Thấy "..#pSuitS.." server phù hợp!");chosenServer=pSuitS[math.random(1,#pSuitS)];allScanned=true;break end
-                        end
-                        if not chosenServer then nextCur=sListD.nextPageCursor;if not nextCur then allScanned=true;updateScreenState("SUCCESS", "Đã quét hết server.");end end
-                    else updateScreenState("ERROR", "Dữ liệu server trả về bị lỗi.") end
-                else updateScreenState("ERROR", "Lỗi API khi lấy danh sách server.");if pAtt>=maxAtt then allScanned=true end end
+                    pFetched=true;local sListD=HttpService:JSONDecode(d)
+                    if sListD and sListD.data then local pSuitS={};
+                        for _,sInf in ipairs(sListD.data) do if not(sInf.id==currentJobId or serverHistoryCache[sInf.id])then if sInf.playing and sInf.maxPlayers and sInf.maxPlayers>0 then local pR=sInf.playing/sInf.maxPlayers if pR>=minPlayerPercentage and pR<maxPlayerPercentageLimit and sInf.playing<sInf.maxPlayers then table.insert(pSuitS,sInf)end end end end
+                        if #pSuitS>0 then chosenServer=pSuitS[math.random(1,#pSuitS)];allScanned=true;break end
+                        nextCur=sListD.nextPageCursor;if not nextCur then allScanned=true; end
+                    else updateDisplay("ERROR", "Dữ liệu server trả về bị lỗi.") end
+                else updateDisplay("ERROR", "Lỗi API khi lấy danh sách server.");if pAtt>=maxAtt then allScanned=true end end
             end
-            if chosenServer or allScanned then break end
-            if pFetched and not allScanned and not chosenServer then task.wait(waitTimeBetweenPageFetches)end
+            if chosenServer or allScanned then break end; task.wait(waitTimeBetweenPageFetches)
         end
-        if chosenServer then
-            updateScreenState("SUCCESS", string.format("ĐÃ CHỌN SERVER! ID:%s (%d/%d)", tostring(chosenServer.id):sub(1,8), chosenServer.playing, chosenServer.maxPlayers))
-            sLActive=false
-        elseif allScanned then
-            updateScreenState("SUCCESS", string.format("Không tìm thấy server phù hợp. Chờ %ds để quét lại.", waitTimeBetweenFullScans))
-            task.wait(waitTimeBetweenFullScans)
-        end
+        if chosenServer then updateDisplay("SUCCESS", string.format("ĐÃ CHỌN SERVER!"));sLActive=false
+        elseif allScanned then updateDisplay("INFO", string.format("Không tìm thấy server phù hợp. Chờ %ds.", waitTimeBetweenFullScans)); task.wait(waitTimeBetweenFullScans) end
     end
     if chosenServer then
-        updateScreenState("SUCCESS", "Chuẩn bị dịch chuyển...")
-        addJobIdToHistoryAndSave(currentJobId);task.wait(1)
-        local sTP,eTP=pcall(function()TeleportService:TeleportToPlaceInstance(placeId,chosenServer.id,LocalPlayer)end)
-        if not sTP then
-            updateScreenState("ERROR", "Lỗi dịch chuyển! Thử lại...")
-            serverHistoryCache[chosenServer.id]=true;chosenServer=nil;task.wait(5);searchForServer()
-        end
-    else
-        updateScreenState("ERROR", "Không thể tìm thấy server phù hợp. Dừng lại.")
-    end
+        updateDisplay("SUCCESS", "Chuẩn bị dịch chuyển..."); addJobIdToHistoryAndSave(currentJobId); task.wait(1)
+        local sTP,eTP=pcall(TeleportService.TeleportToPlaceInstance, TeleportService, placeId, chosenServer.id, LocalPlayer)
+        if not sTP then updateDisplay("ERROR", "Lỗi dịch chuyển! Thử lại..."); serverHistoryCache[chosenServer.id]=true;chosenServer=nil;task.wait(5);searchForServer() end
+    else updateDisplay("ERROR", "Không thể tìm thấy server phù hợp. Dừng lại.") end
 end
 
 -- --- [[ ĐÃ THAY ĐỔI ]] Quản lý Countdown và Donate ---
-local countdownShouldReset = false
-local currentCountdownThread = nil
+local countdownShouldReset = false; local currentCountdownThread = nil
 local function performCountdownThenSearch(minutesToWait)
-    print("[CD] Bắt đầu đếm ngược " .. minutesToWait .. " phút.")
-    if not minutesToWait or minutesToWait <= 0 then
-        updateScreenState("ERROR", "Thời gian chờ không hợp lệ. Tìm server ngay..."); searchForServer(); return
-    end
-    local totalS = minutesToWait * 60
+    if not minutesToWait or minutesToWait <= 0 then updateDisplay("ERROR", "Thời gian chờ lỗi."); searchForServer(); return end
     
+    -- Xóa các UI không liên quan trước khi bắt đầu vòng lặp
+    if SETTINGS.countdownDisplayMode == 1 then statusFrame.BackgroundTransparency = 1 else statusTextLabel.Text = "" end
+
+    local totalS = minutesToWait * 60
     for i = totalS, 0, -1 do
         if countdownShouldReset and SETTINGS.enableDonateResetCountdown then
-            print("[CD] Reset do có donate.");
-            countdownShouldReset = false;
-            updateScreenState("SUCCESS", "Nhận được donate! Đặt lại thời gian...");
-            startInitialCountdown(); -- Bắt đầu lại countdown mới
-            return -- Thoát coroutine hiện tại
+            countdownShouldReset = false; updateDisplay("SUCCESS", "Donate! Reset thời gian.");
+            startInitialCountdown(); return
         end
 
-        -- [[ LOGIC NHẤP NHÁY MỚI ]] --
-        if statusFrame and statusFrame.Parent then
-            if i % 2 == 0 then
-                statusFrame.BackgroundColor3 = NEON_COLORS.BLUE
-            else
-                statusFrame.BackgroundColor3 = NEON_COLORS.RED
-            end
-            statusFrame.BackgroundTransparency = 0.6 -- Độ mờ khi nhấp nháy
-        end
-        -- In thời gian còn lại ra console thay vì GUI
-        if i % 10 == 0 then -- In log mỗi 10 giây để đỡ spam
-             print(string.format("[CD] Thời gian còn lại: %02d:%02d", math.floor(i/60), i%60))
+        -- Xử lý hiển thị mỗi giây dựa trên chế độ
+        if SETTINGS.countdownDisplayMode == 1 then
+            statusTextLabel.Text = string.format("%02d:%02d", math.floor(i/60), i%60)
+            statusTextLabel.TextColor3 = Color3.new(1,1,1) -- Màu trắng cho dễ nhìn
+        else -- Chế độ 2
+            statusFrame.BackgroundColor3 = (i % 2 == 0) and NEON_COLORS.BLUE or NEON_COLORS.RED
+            statusFrame.BackgroundTransparency = 0.6
         end
         
         task.wait(1)
     end
     
-    updateScreenState("SUCCESS", "Hết giờ! Bắt đầu tìm server...");
-    searchForServer()
+    updateDisplay("SUCCESS", "Hết giờ! Bắt đầu tìm server..."); searchForServer()
 end
 
 function startInitialCountdown()
-    print("[CD] startInitialCountdown() BẮT ĐẦU.")
-    updateScreenState("SUCCESS", "Chuẩn bị đếm ngược...")
-    if currentCountdownThread and coroutine.status(currentCountdownThread) ~= "dead" then
-        pcall(coroutine.close, currentCountdownThread);
-        currentCountdownThread = nil
-    end
+    updateDisplay("INFO", "Bắt đầu chu trình...")
+    if currentCountdownThread and coroutine.status(currentCountdownThread) ~= "dead" then pcall(coroutine.close, currentCountdownThread); currentCountdownThread = nil end
     currentCountdownThread = coroutine.create(function()
         local s, e = pcall(performCountdownThenSearch, DEFAULT_WAIT_MINUTES)
-        if not s then
-            warn("[CD] LỖI COROUTINE: " .. tostring(e));
-            updateScreenState("ERROR", "Coroutine đếm ngược gặp lỗi. Thử lại sau 5s...");
-            task.wait(5);
-            if SETTINGS.enableServerHopLogic then
-                startInitialCountdown()
-            end
-        end
+        if not s then updateDisplay("ERROR", "Lỗi Coroutine. Thử lại sau 5s..."); task.wait(5); if SETTINGS.enableServerHopLogic then startInitialCountdown() end end
     end)
     coroutine.resume(currentCountdownThread)
 end
 
 -- --- Khởi chạy Script ---
-print("[MainInit] Script BẮT ĐẦU KHỞI CHẠY.")
-updateScreenState("SUCCESS", "Đang khởi tạo ServerHop...")
+updateDisplay("INFO", "Đang khởi tạo ServerHop...")
 task.wait(0.2)
+if type(setfpscap) == "function" and SETTINGS.targetFps and SETTINGS.targetFps > 0 then task.spawn(function() while task.wait() do pcall(setfpscap, SETTINGS.targetFps) end end) end
 
--- --- LOGIC GIỚI HẠN FPS ---
-if type(setfpscap) == "function" and SETTINGS.targetFps and SETTINGS.targetFps > 0 then
-    print("[FPSManager] Kích hoạt vòng lặp giới hạn FPS tại: " .. SETTINGS.targetFps)
-    task.spawn(function()
-        while task.wait() do
-            pcall(setfpscap, SETTINGS.targetFps)
-        end
-    end)
-else
-    print("[FPSManager] CẢNH BÁO: Hàm 'setfpscap' không tồn tại hoặc FPS không hợp lệ.")
-end
-
-updateScreenState("SUCCESS", "Chờ game tải trong 30 giây...")
-print(string.format("[MainInit] Chờ 30s tối ưu hóa. Time: %s", os.date and os.date("%X") or "N/A"))
+updateDisplay("INFO", "Chờ game tải trong 30 giây...")
 task.wait(30)
-updateScreenState("SUCCESS", "Hết thời gian chờ. Bắt đầu thiết lập...")
+updateDisplay("INFO", "Hết thời gian chờ. Bắt đầu thiết lập...")
 
-if SETTINGS.enableSafePlatform then
-    createSafePlatform()
-end
-if SETTINGS.enableStaticAfkView then
-    setupStaticAfkView()
-end
-if SETTINGS.enableGraphicsOptimization then
-    optimizeGraphics()
-end
+if SETTINGS.enableSafePlatform then createSafePlatform() end
+if SETTINGS.enableStaticAfkView then setupStaticAfkView() end
+if SETTINGS.enableGraphicsOptimization then optimizeGraphics() end
 
 if SETTINGS.enableServerHopLogic then
-    updateScreenState("SUCCESS", "Bắt đầu chu trình tìm server.")
-    task.wait(0.3)
     startInitialCountdown()
-
     if SETTINGS.enableDonateResetCountdown then
-        print("[MainInit] Theo dõi donate được BẬT.")
-        local lsSuccess,ls=pcall(function()return LocalPlayer:WaitForChild("leaderstats",15)end)
-        if lsSuccess and ls then
-            local rvS,rvO=pcall(function()return ls:WaitForChild("Raised",15)end)
-            if rvS and rvO then
-                local lastR=rvO.Value;
-                rvO.Changed:Connect(function(nV)
-                    if nV>lastR then
-                        print("[Donate] Phát hiện donate! "..lastR.." -> "..nV)
-                        lastR=nV
-                        countdownShouldReset=true
-                    end
-                end)
-            else print("[Donate] Ko thấy 'Raised' trong leaderstats.") end
-        else print("[Donate] Ko thấy 'leaderstats'.") end
+        local leaderstats = LocalPlayer:WaitForChild("leaderstats",15)
+        if leaderstats then local raised = leaderstats:WaitForChild("Raised",15)
+            if raised then local lastR=raised.Value; raised.Changed:Connect(function(nV) if nV>lastR then lastR=nV;countdownShouldReset=true; end end) end
+        end
     end
 else
-    updateScreenState("SUCCESS", "Logic Server Hop TẮT. Script đã hoàn thành.")
-    print("[MainInit] Server Hop bị TẮT bởi setting.")
+    updateDisplay("INFO", "Logic Server Hop TẮT. Script đã hoàn thành.")
 end
-
 print("[MainInit] Script đã hoàn tất khởi chạy chính.")
