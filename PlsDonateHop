@@ -41,7 +41,7 @@ local SETTINGS = {
     enableServerHopLogic = true,    -- true: Kích hoạt toàn bộ logic tìm và chuyển server. false: Chỉ thực hiện các tác vụ trên (platform, view, optimize) rồi dừng.
     enableFileHistory = true,       -- true: Sử dụng file để lưu và tránh các server đã vào. false: Không dùng file (chỉ tránh server hiện tại).
     enableDonateResetCountdown = true, -- true: Reset thời gian đếm ngược khi có donate. false: Không reset.
-    targetFps = 5                   -- Đặt FPS mục tiêu. Ví dụ: 5, 15, 30, 60. Đặt là 0 hoặc số âm để không giới hạn.
+    targetFps = 10                -- Đặt FPS mục tiêu. Ví dụ: 5, 15, 30, 60. Đặt là 0 hoặc số âm để không giới hạn.
 }
 -- --- Kết thúc Setting ---
 
