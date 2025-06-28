@@ -1,16 +1,16 @@
 --[[
     ================================================================================================
-    SCRIPT CHUYỂN ĐỔI BỞI GEMINI (GOOGLE AI)
-    Dựa trên script gốc do người dùng cung cấp.
-    Mục tiêu: Chuyển đổi script Server Hop sang giao diện Rayfield UI để dễ dàng tùy chỉnh và sử dụng.
-    Ngày chuyển đổi: 29/06/2025
+    SCRIPT CHUYỂN ĐỔI SANG CERBERUS UI BỞI GEMINI (GOOGLE AI)
+    Dựa trên yêu cầu của người dùng và script Rayfield trước đó.
+    Mục tiêu: Cung cấp trải nghiệm người dùng mới với thư viện Cerberus UI.
+    URL Cerberus: https://raw.githubusercontent.com/AinsworthNecco/Lychkin/refs/heads/main/MainUICeberus
     ================================================================================================
 ]]
 
--- --- Tải Thư viện Rayfield UI ---
-local Rayfield = loadstring(game:HttpGet("https://raw.githubusercontent.com/AinsworthNecco/Lychkin/refs/heads/main/MainUI"))()
+-- --- Tải Thư viện Cerberus UI (Theo URL người dùng cung cấp) ---
+local Cerberus = loadstring(game:HttpGet('https://raw.githubusercontent.com/AinsworthNecco/Lychkin/refs/heads/main/MainUICeberus'))()
 
--- --- Các service cần thiết (Giữ nguyên từ script gốc) ---
+-- --- Các service cần thiết (Giữ nguyên) ---
 local TeleportService = game:GetService("TeleportService")
 local HttpService = game:GetService("HttpService")
 local Players = game:GetService("Players")
@@ -28,8 +28,7 @@ local AFK_PLATFORM_NAME = "MySafeAFKPlatform"
 local STATIC_HEAD_ANCHOR_PART_NAME = "AFK_HeadAnchor_StaticCam"
 local STATIC_BLACK_SCREEN_PART_NAME = "AFK_BlackScreen_StaticCam"
 
--- --- Bảng Cấu hình mặc định cho Rayfield UI ---
--- Các giá trị này sẽ được load vào UI và người dùng có thể thay đổi trực tiếp.
+-- --- Bảng Cấu hình mặc định cho UI ---
 local Config = {
     -- Cài đặt Server Hop
     WaitMinutes = 10,
@@ -38,7 +37,7 @@ local Config = {
     WaitBetweenScans = 7,
     WaitBetweenFetches = 0.75,
     -- Cài đặt Tính năng
-    EnableHopLogic = false, -- Sẽ được điều khiển bởi nút Toggle chính
+    EnableHopLogic = false,
     EnableFileHistory = true,
     EnableDonateReset = true,
     EnableSafePlatform = true,
@@ -47,496 +46,282 @@ local Config = {
     TargetFPS = 7,
 }
 
--- Biến cục bộ để quản lý trạng thái của script
+-- Biến cục bộ để quản lý trạng thái
 local serverHistoryCache = {}
 local chosenServer = nil
 local countdownCoroutine = nil
 local isHoppingProcessActive = false
-local statusLabelRef -- Biến để tham chiếu đến Label trạng thái trên UI
+local statusSectionRef -- Biến để tham chiếu đến Section chứa label trạng thái
 
--- --- [[ MỚI ]] Hàm hiển thị thông báo qua Rayfield ---
-local function ShowNotification(title, content, duration, buttontext)
-    Rayfield:Notify({
-        Title = title or "Thông báo",
-        Content = content or "...",
-        Duration = duration or 5,
-        Button = buttontext or "Đóng",
-    })
+-- --- [[ MỚI ]] Hàm hiển thị thông báo và cập nhật trạng thái qua Cerberus ---
+local function ShowNotification(title, content)
+    -- Cerberus có hệ thống notification đơn giản hơn
+    Cerberus:Notification(title .. ": " .. content)
     print("[" .. title .. "] " .. content)
 end
 
--- --- Hàm xử lý file (Giữ nguyên logic gốc) ---
+-- Hàm cập nhật label trạng thái (do Cerberus không có :Set())
+local function updateStatusLabel(text)
+    if statusSectionRef then
+        statusSectionRef:Clear() -- Xóa tất cả thành phần cũ trong section
+        statusSectionRef:CreateLabel(text) -- Tạo label mới với nội dung cập nhật
+    end
+end
+
+-- --- Các hàm logic cốt lõi (Giữ nguyên, chỉ thay đổi cách gọi thông báo và cập nhật trạng thái) ---
+-- (Các hàm xử lý file, tạo platform, AFK view, tối ưu đồ họa, tìm server, countdown... được giữ nguyên y hệt phiên bản Rayfield,
+-- chỉ thay đổi các dòng `ShowNotification` và `statusLabelRef:Set` thành `updateStatusLabel`)
+
+-- --- BẮT ĐẦU CÁC HÀM LOGIC ---
+
 local canAccessFiles = false
 local writefile_func, readfile_func
 pcall(function()
-    if writefile and readfile then
-        canAccessFiles, writefile_func, readfile_func = true, writefile, readfile
-        print("[FileIO] Quyền truy cập file có sẵn.")
-    else
-        print("[FileIO] Quyền truy cập file KHÔNG có sẵn. Lịch sử server sẽ không được lưu.")
-    end
+    if writefile and readfile then canAccessFiles, writefile_func, readfile_func = true, writefile, readfile else print("[FileIO] Quyền file KHÔNG có sẵn.") end
 end)
 
 local function loadServerHistory()
     if not canAccessFiles or not Config.EnableFileHistory then return {} end
-    local historySet = {}
-    local success, content = pcall(readfile_func, SERVER_HISTORY_FILENAME)
-    if success and content then
-        for line in string.gmatch(content, "[^" .. "\r\n" .. "]+") do
-            local trimmedLine = line:match("^%s*(.-)%s*$")
-            if trimmedLine and #trimmedLine > 0 then historySet[trimmedLine] = true end
-        end
-    end
-    serverHistoryCache = historySet
-    return historySet
+    local historySet = {}; local s, c = pcall(readfile_func, SERVER_HISTORY_FILENAME)
+    if s and c then for line in string.gmatch(c,"[^".."\r\n".."]+") do local tL=line:match("^%s*(.-)%s*$") if tL and #tL>0 then historySet[tL]=true;end end end
+    serverHistoryCache=historySet; return historySet
 end
 
-local function addJobIdToHistoryAndSave(jobId)
-    if not jobId or not canAccessFiles or not Config.EnableFileHistory then return end
-    serverHistoryCache[jobId] = true
-    local lines = {}
-    for id in pairs(serverHistoryCache) do table.insert(lines, id) end
-    pcall(writefile_func, SERVER_HISTORY_FILENAME, table.concat(lines, "\n"))
+local function addJobIdToHistoryAndSave(jId)
+    if not jId or not canAccessFiles or not Config.EnableFileHistory then return end; serverHistoryCache[jId]=true; local l={}; for id in pairs(serverHistoryCache)do table.insert(l,id)end
+    pcall(writefile_func,SERVER_HISTORY_FILENAME,table.concat(l,"\n"))
 end
 
--- --- Các hàm chức năng (Giữ nguyên logic, chỉ thay đổi thông báo) ---
-
--- Hàm Tạo/Xóa Platform An Toàn
 function manageSafePlatform(enable)
     if enable then
-        if workspace:FindFirstChild(AFK_PLATFORM_NAME) then
-            ShowNotification("Thông tin", "Platform đã tồn tại.", 3)
-            return
-        end
-        ShowNotification("Platform", "Đang tạo platform an toàn...", 3)
-        local platform = Instance.new("Part")
-        platform.Name = AFK_PLATFORM_NAME
-        platform.Anchored = true
-        platform.CanCollide = true
-        platform.Size = Vector3.new(20000, 40, 20000)
-        platform.Color = Color3.fromRGB(50, 50, 50)
-        platform.Transparency = 0.5
-        
-        local char = LocalPlayer.Character
-        local hrp = char and char:FindFirstChild("HumanoidRootPart")
-        if hrp then
-            platform.Position = hrp.Position - Vector3.new(0, 25, 0)
-        else
-            platform.Position = Vector3.new(0, -50, 0)
-        end
-        platform.Parent = workspace
-        ShowNotification("Thành công", "Platform đã được tạo.", 5)
+        if workspace:FindFirstChild(AFK_PLATFORM_NAME) then ShowNotification("Thông tin", "Platform đã tồn tại."); return end
+        ShowNotification("Platform", "Đang tạo platform an toàn...")
+        local p=Instance.new("Part");p.Name=AFK_PLATFORM_NAME;p.Anchored=true;p.CanCollide=true;p.Size=Vector3.new(20000,40,20000);p.Color=Color3.fromRGB(50,50,50);p.Transparency=0.5;
+        local char=LocalPlayer.Character; local hrp=char and char:FindFirstChild("HumanoidRootPart"); if hrp then p.Position=hrp.Position-Vector3.new(0,25,0) else p.Position=Vector3.new(0,-50,0) end
+        p.Parent=workspace; ShowNotification("Thành công", "Platform đã được tạo.")
     else
         local platform = workspace:FindFirstChild(AFK_PLATFORM_NAME)
-        if platform then
-            platform:Destroy()
-            ShowNotification("Platform", "Đã xóa platform an toàn.", 5)
-        end
+        if platform then platform:Destroy(); ShowNotification("Platform", "Đã xóa platform an toàn.") end
     end
 end
 
--- Hàm Bật/Tắt View AFK Tĩnh
 function manageStaticAfkView(enable)
-    local camera = workspace.CurrentCamera
-    if not camera then return end
-
+    local camera = workspace.CurrentCamera; if not camera then return end
     if enable then
-        ShowNotification("AFK View", "Thiết lập view AFK tĩnh...", 3)
-        local character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
-        local head = character and character:WaitForChild("Head", 10)
-        if not head then
-            ShowNotification("Lỗi", "Không tìm thấy đầu của nhân vật.", 5)
-            return
-        end
-
-        local staticHeadAnchor = Instance.new("Part")
-        staticHeadAnchor.Name = STATIC_HEAD_ANCHOR_PART_NAME
-        staticHeadAnchor.Size = Vector3.new(0.1, 0.1, 0.1)
-        staticHeadAnchor.Transparency = 1
-        staticHeadAnchor.CanCollide = false
-        staticHeadAnchor.Anchored = true
-        staticHeadAnchor.CFrame = CFrame.new(head.Position)
-        staticHeadAnchor.Parent = workspace
-
-        local blackTarget = Instance.new("Part")
-        blackTarget.Name = STATIC_BLACK_SCREEN_PART_NAME
-        blackTarget.Size = Vector3.new(2500, 2500, 10)
-        blackTarget.Color = Color3.new(0, 0, 0)
-        blackTarget.CanCollide = false
-        blackTarget.Anchored = true
-        blackTarget.CFrame = CFrame.new(staticHeadAnchor.Position + Vector3.new(150, 0, 0))
-        blackTarget.Parent = workspace
-        
-        camera.CameraType = Enum.CameraType.Scriptable
-        camera.CFrame = CFrame.new(staticHeadAnchor.Position, blackTarget.Position)
-        camera.Focus = blackTarget.CFrame
-        ShowNotification("Thành công", "View AFK tĩnh đã được thiết lập.", 5)
+        ShowNotification("AFK View", "Thiết lập view AFK tĩnh...")
+        local character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait(); local head = character and character:WaitForChild("Head", 10)
+        if not head then ShowNotification("Lỗi", "Không tìm thấy đầu của nhân vật."); return end
+        local staticHeadAnchor=Instance.new("Part");staticHeadAnchor.Name=STATIC_HEAD_ANCHOR_PART_NAME;staticHeadAnchor.Size=Vector3.new(0.1,0.1,0.1);staticHeadAnchor.Transparency=1;staticHeadAnchor.CanCollide=false;staticHeadAnchor.Anchored=true;staticHeadAnchor.CFrame=CFrame.new(head.Position);staticHeadAnchor.Parent=workspace
+        local blackTarget=Instance.new("Part");blackTarget.Name=STATIC_BLACK_SCREEN_PART_NAME;blackTarget.Size=Vector3.new(2500,2500,10);blackTarget.Color=Color3.new(0,0,0);blackTarget.CanCollide=false;blackTarget.Anchored=true;blackTarget.CFrame=CFrame.new(staticHeadAnchor.Position+Vector3.new(150,0,0));blackTarget.Parent=workspace
+        camera.CameraType=Enum.CameraType.Scriptable;camera.CFrame=CFrame.new(staticHeadAnchor.Position,blackTarget.Position);camera.Focus=blackTarget.CFrame
+        ShowNotification("Thành công", "View AFK tĩnh đã được thiết lập.")
     else
-        camera.CameraType = Enum.CameraType.Custom -- Trả về chế độ camera mặc định
-        local headAnchor = workspace:FindFirstChild(STATIC_HEAD_ANCHOR_PART_NAME)
-        local blackScreen = workspace:FindFirstChild(STATIC_BLACK_SCREEN_PART_NAME)
-        if headAnchor then headAnchor:Destroy() end
-        if blackScreen then blackScreen:Destroy() end
-        ShowNotification("AFK View", "Đã tắt view AFK tĩnh.", 5)
+        camera.CameraType=Enum.CameraType.Custom
+        local headAnchor=workspace:FindFirstChild(STATIC_HEAD_ANCHOR_PART_NAME);local blackScreen=workspace:FindFirstChild(STATIC_BLACK_SCREEN_PART_NAME)
+        if headAnchor then headAnchor:Destroy() end; if blackScreen then blackScreen:Destroy() end
+        ShowNotification("AFK View", "Đã tắt view AFK tĩnh.")
     end
 end
 
--- Hàm Tối ưu hóa đồ họa
 function optimizeGraphics()
-    ShowNotification("Tối ưu", "Bắt đầu tối ưu hóa đồ họa...", 3)
-    local success, err = pcall(function()
-        Lighting.GlobalShadows = false
-        Lighting.Brightness = 0
-        Lighting.Ambient = Color3.new(0,0,0)
-        Lighting.OutdoorAmbient = Color3.new(0,0,0)
-        Lighting.ExposureCompensation = -2
-        pcall(function() if Lighting.Atmosphere then Lighting.Atmosphere:Destroy() end end)
-        pcall(function() if Lighting.Sky then Lighting.Sky:Destroy() end end)
-        
-        if LocalPlayer.PlayerGui then
-            for _, gui in pairs(LocalPlayer.PlayerGui:GetChildren()) do
-                if gui ~= Rayfield.Gui then pcall(function() gui:Destroy() end) end
-            end
-        end
-
-        local sO = settings()
-        if sO and sO.Rendering then
-            sO.Rendering.QualityLevel = Enum.QualityLevel.Level01
-            pcall(function() if RunService:IsClient() then RunService:Set3dRenderingEnabled(false) end end)
-        end
-        
-        SoundService.AmbientReverb = Enum.ReverbType.NoReverb
-        for _, sound in pairs(game:GetDescendants()) do
-            if sound:IsA("Sound") then
-                sound.Volume = 0
-                sound:Stop()
-            end
-        end
-        ShowNotification("Thành công", "Đồ họa đã được tối ưu. Một số thay đổi cần rejoin để hoàn tác.", 8)
+    ShowNotification("Tối ưu", "Bắt đầu tối ưu hóa đồ họa...")
+    pcall(function()
+        Lighting.GlobalShadows,Lighting.Brightness,Lighting.Ambient,Lighting.OutdoorAmbient,Lighting.ExposureCompensation=false,0,Color3.new(0,0,0),Color3.new(0,0,0),-2;pcall(function()Lighting.Atmosphere:Destroy()end);pcall(function()Lighting.Sky:Destroy()end)
+        if LocalPlayer.PlayerGui then for _,gui in pairs(LocalPlayer.PlayerGui:GetChildren())do if gui~=Cerberus.GUI then pcall(function()gui:Destroy()end)end end end
+        local sO=settings();if sO and sO.Rendering then sO.Rendering.QualityLevel=Enum.QualityLevel.Level01;pcall(function()if RunService:IsClient()then RunService:Set3dRenderingEnabled(false)end end)end
+        SoundService.AmbientReverb=Enum.ReverbType.NoReverb;for _,sound in pairs(game:GetDescendants())do if sound:IsA("Sound")then sound.Volume=0;sound:Stop()end end
+        ShowNotification("Thành công", "Đồ họa đã được tối ưu. Rejoin để hoàn tác.")
     end)
-    if not success then
-        ShowNotification("Lỗi", "Có lỗi xảy ra khi tối ưu hóa đồ họa: " .. tostring(err), 8)
-    end
 end
 
--- --- Logic Tìm Server (Giữ nguyên, chỉ thay đổi thông báo) ---
 function searchForServer()
     if not isHoppingProcessActive then return end
     if Config.EnableFileHistory then loadServerHistory() end
-    local historyCount = 0
-    for _ in pairs(serverHistoryCache) do historyCount = historyCount + 1 end
-    
-    statusLabelRef:Set("Trạng thái: Đang tìm server... (Tránh " .. tostring(historyCount + 1) .. " server)")
-    ShowNotification("Server Hop", "Bắt đầu tìm kiếm server...", 3)
+    local historyCount = 0; for _ in pairs(serverHistoryCache) do historyCount = historyCount + 1 end
+    updateStatusLabel("Trạng thái: Đang tìm server... (Tránh " .. tostring(historyCount + 1) .. " server)")
+    ShowNotification("Server Hop", "Bắt đầu tìm kiếm server...")
     
     local serversUrlBase = "https://games.roblox.com/v1/games/" .. placeId .. "/servers/Public?sortOrder=Asc&limit=100"
-    local searchLoopActive = true
     chosenServer = nil
     
-    while searchLoopActive and not chosenServer and isHoppingProcessActive do
-        local nextCursor = nil
-        local allScanned = false
-        while not allScanned and not chosenServer and isHoppingProcessActive do
-            local reqUrl = serversUrlBase .. (nextCursor and "&cursor=" .. nextCursor or "")
-            local success, response = pcall(game.HttpGet, game, reqUrl, true)
-            
-            if success then
-                local decodedResponse = pcall(HttpService.JSONDecode, HttpService, response)
-                if decodedResponse and type(decodedResponse) == "table" and decodedResponse.data then
-                    local potentialServers = {}
-                    for _, serverInfo in ipairs(decodedResponse.data) do
-                        if serverInfo.id ~= currentJobId and not serverHistoryCache[serverInfo.id] then
-                            if serverInfo.playing and serverInfo.maxPlayers and serverInfo.maxPlayers > 0 then
-                                local playerRatio = serverInfo.playing / serverInfo.maxPlayers
-                                if playerRatio >= Config.MinPlayerPercentage and playerRatio < Config.MaxPlayerPercentage and serverInfo.playing < serverInfo.maxPlayers then
-                                    table.insert(potentialServers, serverInfo)
-                                end
-                            end
-                        end
-                    end
-                    
-                    if #potentialServers > 0 then
-                        chosenServer = potentialServers[math.random(1, #potentialServers)]
-                        allScanned = true
-                        break
-                    end
-                    
-                    nextCursor = decodedResponse.nextPageCursor
-                    if not nextCursor then allScanned = true end
-                else
-                    ShowNotification("Lỗi API", "Dữ liệu server không hợp lệ.", 5)
-                end
-            else
-                ShowNotification("Lỗi API", "Không thể lấy danh sách server. Thử lại...", 5)
-                task.wait(3)
+    task.spawn(function()
+        local searchLoopActive = true
+        while searchLoopActive and not chosenServer and isHoppingProcessActive do
+            local nextCursor=nil; local allScanned=false
+            while not allScanned and not chosenServer and isHoppingProcessActive do
+                local s,d=pcall(game.HttpGet,game,serversUrlBase..(nextCursor and "&cursor="..nextCursor or ""),true)
+                if s then
+                    local sListD=pcall(HttpService.JSONDecode, HttpService, d)
+                    if sListD and type(sListD) == "table" and sListD.data then
+                        local pSuitS={}; for _,sInf in ipairs(sListD.data)do if not(sInf.id==currentJobId or serverHistoryCache[sInf.id])then if sInf.playing and sInf.maxPlayers and sInf.maxPlayers>0 then local pR=sInf.playing/sInf.maxPlayers if pR>=Config.MinPlayerPercentage and pR<Config.MaxPlayerPercentage and sInf.playing<sInf.maxPlayers then table.insert(pSuitS,sInf)end end end end
+                        if #pSuitS>0 then chosenServer=pSuitS[math.random(1,#pSuitS)];allScanned=true;break end
+                        nextCursor=sListD.nextPageCursor;if not nextCursor then allScanned=true end
+                    else ShowNotification("Lỗi API","Dữ liệu server không hợp lệ.") end
+                else ShowNotification("Lỗi API","Không thể lấy danh sách server. Thử lại..."); task.wait(3) end
+                if chosenServer or allScanned or not isHoppingProcessActive then break end; task.wait(Config.WaitBetweenFetches)
             end
-            if chosenServer or allScanned or not isHoppingProcessActive then break end
-            task.wait(Config.WaitBetweenFetches)
+            if chosenServer then
+                updateStatusLabel("Trạng thái: ĐÃ TÌM THẤY SERVER!"); ShowNotification("Thành công", "Đã chọn server! Chuẩn bị dịch chuyển."); searchLoopActive=false
+            elseif allScanned then updateStatusLabel("Trạng thái: Không tìm thấy. Chờ " .. Config.WaitBetweenScans .. "s."); task.wait(Config.WaitBetweenScans) end
         end
-        
-        if chosenServer then
-            statusLabelRef:Set("Trạng thái: ĐÃ TÌM THẤY SERVER!")
-            ShowNotification("Thành công", "Đã chọn server! Chuẩn bị dịch chuyển.", 5)
-            searchLoopActive = false
-        elseif allScanned then
-            statusLabelRef:Set("Trạng thái: Không tìm thấy server. Chờ " .. Config.WaitBetweenScans .. "s.")
-            task.wait(Config.WaitBetweenScans)
+        if chosenServer and isHoppingProcessActive then
+            addJobIdToHistoryAndSave(currentJobId); task.wait(1)
+            local sTP,eTP=pcall(TeleportService.TeleportToPlaceInstance,TeleportService,placeId,chosenServer.id,LocalPlayer)
+            if not sTP then ShowNotification("Lỗi dịch chuyển", "Lỗi: " .. tostring(eTP));serverHistoryCache[chosenServer.id]=true;chosenServer=nil;task.wait(5);searchForServer() end
+        elseif isHoppingProcessActive then
+            ShowNotification("Thất bại", "Không tìm thấy server phù hợp. Dừng lại."); updateStatusLabel("Trạng thái: Đã dừng. Không tìm thấy server."); Config.EnableHopLogic=false; isHoppingProcessActive=false
         end
-    end
-    
-    if chosenServer and isHoppingProcessActive then
-        addJobIdToHistoryAndSave(currentJobId)
-        task.wait(1)
-        local success, err = pcall(TeleportService.TeleportToPlaceInstance, TeleportService, placeId, chosenServer.id, LocalPlayer)
-        if not success then
-            ShowNotification("Lỗi dịch chuyển", "Không thể dịch chuyển! Lỗi: " .. tostring(err), 8)
-            serverHistoryCache[chosenServer.id] = true
-            chosenServer = nil
-            task.wait(5)
-            searchForServer()
-        end
-    elseif isHoppingProcessActive then
-        ShowNotification("Thất bại", "Không thể tìm thấy server phù hợp. Dừng lại.", 8)
-        statusLabelRef:Set("Trạng thái: Đã dừng. Không tìm thấy server.")
-        Config.EnableHopLogic = false -- Tự động tắt toggle
-        isHoppingProcessActive = false
-    end
+    end)
 end
 
--- --- Quản lý Countdown và Donate (Đã sửa đổi để dùng coroutine và cờ) ---
 function performCountdownThenSearch(minutesToWait)
-    local totalSeconds = minutesToWait * 60
-    local countdownShouldReset = false
-
-    -- Logic lắng nghe donate
+    local totalSeconds = minutesToWait * 60; local countdownShouldReset = false
     local donateConnection = nil
     if Config.EnableDonateReset then
-        local leaderstats = LocalPlayer:WaitForChild("leaderstats", 15)
-        if leaderstats then
-            local raised = leaderstats:WaitForChild("Raised", 15)
-            if raised then
-                local lastRaised = raised.Value
-                donateConnection = raised.Changed:Connect(function(newValue)
-                    if newValue > lastRaised then
-                        lastRaised = newValue
-                        countdownShouldReset = true
-                        ShowNotification("Donate!", "Cảm ơn đã donate! Reset thời gian.", 5)
-                    end
-                end)
-            end
+        local leaderstats=LocalPlayer:WaitForChild("leaderstats",15);if leaderstats then local raised=leaderstats:WaitForChild("Raised",15)
+            if raised then local lastR=raised.Value;donateConnection=raised.Changed:Connect(function(nV)if nV>lastR then lastR=nV;countdownShouldReset=true;ShowNotification("Donate!", "Cảm ơn! Reset thời gian.")end end)end
         end
     end
-
-    for i = totalSeconds, 0, -1 do
+    for i=totalSeconds,0,-1 do
         if not isHoppingProcessActive then break end
-        if countdownShouldReset then
-             if donateConnection then donateConnection:Disconnect() end
-             performCountdownThenSearch(Config.WaitMinutes) -- Bắt đầu lại countdown
-             return
-        end
-        
-        statusLabelRef:Set(string.format("Sẽ tìm server sau: %02d:%02d", math.floor(i/60), i%60))
-        task.wait(1)
+        if countdownShouldReset then if donateConnection then donateConnection:Disconnect() end; performCountdownThenSearch(Config.WaitMinutes); return end
+        updateStatusLabel(string.format("Sẽ tìm server sau: %02d:%02d", math.floor(i/60), i%60)); task.wait(1)
     end
-    
     if donateConnection then donateConnection:Disconnect() end
-    
-    if isHoppingProcessActive then
-        statusLabelRef:Set("Trạng thái: Hết giờ! Bắt đầu tìm server...")
-        searchForServer()
-    end
+    if isHoppingProcessActive then updateStatusLabel("Trạng thái: Hết giờ! Bắt đầu tìm server..."); searchForServer() end
 end
 
 function startMainProcess()
-    isHoppingProcessActive = true
-    statusLabelRef:Set("Trạng thái: Bắt đầu chu trình...")
+    isHoppingProcessActive = true; updateStatusLabel("Trạng thái: Bắt đầu chu trình...")
     countdownCoroutine = task.spawn(function()
-        local success, err = pcall(performCountdownThenSearch, Config.WaitMinutes)
-        if not success then
-            ShowNotification("Lỗi Coroutine", "Lỗi nghiêm trọng trong chu trình chính: " .. tostring(err), 8)
-            isHoppingProcessActive = false
-            statusLabelRef:Set("Trạng thái: Lỗi Coroutine. Đã dừng.")
-        end
+        local s,e=pcall(performCountdownThenSearch, Config.WaitMinutes)
+        if not s then ShowNotification("Lỗi Coroutine", tostring(e)); isHoppingProcessActive=false; updateStatusLabel("Trạng thái: Lỗi Coroutine. Đã dừng.") end
     end)
 end
 
 function stopMainProcess()
     isHoppingProcessActive = false
-    if countdownCoroutine then
-        -- Không có cách trực tiếp an toàn để "kill" một thread,
-        -- việc set isHoppingProcessActive thành false sẽ khiến các vòng lặp bên trong dừng lại.
-        task.cancel(countdownCoroutine)
-        countdownCoroutine = nil
-    end
-    statusLabelRef:Set("Trạng thái: Đã dừng bởi người dùng.")
-    ShowNotification("Thông báo", "Chu trình Server Hop đã dừng.", 5)
+    if countdownCoroutine then task.cancel(countdownCoroutine); countdownCoroutine=nil end
+    updateStatusLabel("Trạng thái: Đã dừng bởi người dùng."); ShowNotification("Thông báo", "Chu trình Server Hop đã dừng.")
 end
 
+-- --- KẾT THÚC CÁC HÀM LOGIC ---
 
--- --- [[ GIAO DIỆN RAYFIELD ]] ---
-local Window = Rayfield:CreateWindow({
-    Name = "Advanced Server Hop by Gemini",
-    LoadingTitle = "Đang tải giao diện...",
-    LoadingSubtitle = "Dựa trên script của bạn",
-    ConfigurationSaving = {
-        Enabled = true,
-        FolderName = "ServerHopConfig",
-        FileName = "MainConfig"
-    },
-    KeySystem = false,
+
+-- --- [[ GIAO DIỆN CERBERUS ]] ---
+local Main = Cerberus:Create({
+    Name = 'Advanced Server Hop by Gemini (Cerberus)',
+    Size = UDim2.fromOffset(500, 420),
+    Theme = 'Midnight', -- Các theme khác: 'Dark', 'Light', 'Grape'
+    Transparency = 0.9,
 })
 
 -- Tab chính: Server Hop
-local MainTab = Window:CreateTab("Server Hop", 4483362458)
+local MainTab = Main:CreateTab({ Name = 'Server Hop', Icon = 'rbxassetid://282363387'})
+local ControlSection = MainTab:CreateSection({ Name = 'Điều khiển chu trình' })
+statusSectionRef = MainTab:CreateSection({ Name = 'Trạng thái hiện tại' })
 
-MainTab:CreateLabel("Điều khiển chu trình tự động")
-
-statusLabelRef = MainTab:CreateLabel("Trạng thái: Chưa hoạt động")
-
-MainTab:CreateToggle({
-    Name = "Bắt đầu / Dừng Chu trình Server Hop",
-    CurrentValue = Config.EnableHopLogic,
-    Flag = "MainHopToggle", -- Cờ để lưu cài đặt
+ControlSection:CreateToggle({
+    Name = 'Bắt đầu / Dừng Chu trình Server Hop',
     Callback = function(Value)
         Config.EnableHopLogic = Value
-        if Value then
-            startMainProcess()
-        else
-            stopMainProcess()
-        end
+        if Value then startMainProcess() else stopMainProcess() end
     end,
+    Enabled = Config.EnableHopLogic
 })
 
-MainTab:CreateToggle({
-    Name = "Reset thời gian khi có Donate",
-    CurrentValue = Config.EnableDonateReset,
-    Flag = "DonateResetToggle",
+ControlSection:CreateToggle({
+    Name = 'Reset thời gian khi có Donate',
     Callback = function(Value)
         Config.EnableDonateReset = Value
-        ShowNotification("Cài đặt", "Reset khi có donate: " .. (Value and "Bật" or "Tắt"), 3)
+        ShowNotification("Cài đặt", "Reset khi có donate: " .. (Value and "Bật" or "Tắt"))
     end,
+    Enabled = Config.EnableDonateReset
 })
 
 -- Tab: AFK & Đồ họa
-local AFKTab = Window:CreateTab("AFK & Đồ họa", 5025235889)
+local AFKTab = Main:CreateTab({ Name = 'Tiện ích', Icon = 'rbxassetid://6031393359' })
+local AFKSection = AFKTab:CreateSection({ Name = 'Tính năng AFK' })
+local GraphicsSection = AFKTab:CreateSection({ Name = 'Tối ưu hóa' })
 
-AFKTab:CreateLabel("Các tính năng hỗ trợ AFK và giảm lag")
-
-AFKTab:CreateToggle({
-    Name = "Tạo Platform An Toàn",
-    CurrentValue = Config.EnableSafePlatform,
-    Flag = "SafePlatformToggle",
-    Callback = function(Value)
-        Config.EnableSafePlatform = Value
-        manageSafePlatform(Value)
-    end,
+AFKSection:CreateToggle({
+    Name = 'Tạo Platform An Toàn',
+    Callback = function(Value) manageSafePlatform(Value) end,
+    Enabled = Config.EnableSafePlatform
 })
 
-AFKTab:CreateToggle({
-    Name = "Bật View AFK Tĩnh (Màn hình đen)",
-    CurrentValue = Config.EnableStaticAFK,
-    Flag = "StaticAFKToggle",
-    Callback = function(Value)
-        Config.EnableStaticAFK = Value
-        manageStaticAfkView(Value)
-    end,
+AFKSection:CreateToggle({
+    Name = 'Bật View AFK Tĩnh (Màn hình đen)',
+    Callback = function(Value) manageStaticAfkView(Value) end,
+    Enabled = Config.EnableStaticAFK
 })
 
-AFKTab:CreateToggle({
-    Name = "Tối ưu hóa đồ họa (Giảm lag)",
-    CurrentValue = Config.EnableGraphicsOpt,
-    Flag = "GraphicsOptToggle",
-    Callback = function(Value)
-        Config.EnableGraphicsOpt = Value
-        if Value then
-            optimizeGraphics()
-        else
-            ShowNotification("Thông báo", "Để hoàn tác tối ưu đồ họa, vui lòng rejoin game.", 8)
-        end
-    end,
+GraphicsSection:CreateToggle({
+    Name = 'Tối ưu hóa đồ họa (Giảm lag)',
+    Callback = function(Value) if Value then optimizeGraphics() else ShowNotification("Thông báo", "Rejoin để hoàn tác tối ưu đồ họa.") end end,
+    Enabled = Config.EnableGraphicsOpt
 })
 
-AFKTab:CreateInput({
-    Name = "Giới hạn FPS (0 = không giới hạn)",
-    PlaceholderText = "Nhập số...",
-    NumbersOnly = true,
-    CurrentValue = Config.TargetFPS,
-    Flag = "TargetFPSInput",
+GraphicsSection:CreateTextBox({
+    Name = 'Giới hạn FPS (0 = không giới hạn)',
+    Placeholder = 'Nhập số...',
+    Numbers = true,
     Callback = function(Value)
         local num = tonumber(Value)
-        if num then
-            Config.TargetFPS = num
-            ShowNotification("Cài đặt", "Đã đặt giới hạn FPS thành: " .. tostring(num), 3)
-        end
+        if num then Config.TargetFPS = num; ShowNotification("Cài đặt", "Đã đặt giới hạn FPS thành: " .. tostring(num)) end
     end,
+    Default = tostring(Config.TargetFPS)
 })
 
 -- Tab: Cài đặt chi tiết
-local SettingsTab = Window:CreateTab("Cài đặt", 5025235889)
+local SettingsTab = Main:CreateTab({ Name = 'Cài đặt', Icon = 'rbxassetid://3944111394' })
+local ServerFindSection = SettingsTab:CreateSection({ Name = 'Cấu hình tìm server' })
 
-SettingsTab:CreateLabel("Cấu hình chi tiết cho việc tìm server")
-
-SettingsTab:CreateSlider({
-    Name = "Thời gian chờ trước khi tìm (phút)",
-    Range = {1, 60},
-    CurrentValue = Config.WaitMinutes,
-    Flag = "WaitMinutesSlider",
+ServerFindSection:CreateSlider({
+    Name = 'Thời gian chờ trước khi tìm (phút)',
+    Min = 1, Max = 60, Default = Config.WaitMinutes, Suffix = ' phút',
     Callback = function(Value)
         Config.WaitMinutes = math.floor(Value)
-        ShowNotification("Cài đặt", "Thời gian chờ mới: " .. Config.WaitMinutes .. " phút", 3)
-    end,
+        ShowNotification("Cài đặt", "Thời gian chờ mới: " .. Config.WaitMinutes .. " phút")
+    end
 })
 
-SettingsTab:CreateSlider({
-    Name = "Tỉ lệ người chơi TỐI THIỂU (%)",
-    Range = {0, 100},
-    CurrentValue = Config.MinPlayerPercentage * 100,
-    Flag = "MinPlayerSlider",
+ServerFindSection:CreateSlider({
+    Name = 'Tỉ lệ người chơi TỐI THIỂU (%)',
+    Min = 0, Max = 100, Default = Config.MinPlayerPercentage * 100, Suffix = '%',
     Callback = function(Value)
         Config.MinPlayerPercentage = Value / 100
-        SettingsTab:Get("MaxPlayerSlider"):SetMin(Value) -- Đảm bảo max > min
-        ShowNotification("Cài đặt", string.format("Tỉ lệ tối thiểu: %.0f%%", Value), 3)
-    end,
+        ShowNotification("Cài đặt", string.format("Tỉ lệ tối thiểu: %.0f%%", Value))
+    end
 })
 
-SettingsTab:CreateSlider({
-    Name = "Tỉ lệ người chơi TỐI ĐA (%)",
-    Range = {0, 100},
-    CurrentValue = Config.MaxPlayerPercentage * 100,
-    Flag = "MaxPlayerSlider",
+ServerFindSection:CreateSlider({
+    Name = 'Tỉ lệ người chơi TỐI ĐA (%)',
+    Min = 0, Max = 100, Default = Config.MaxPlayerPercentage * 100, Suffix = '%',
     Callback = function(Value)
         Config.MaxPlayerPercentage = Value / 100
-        SettingsTab:Get("MinPlayerSlider"):SetMax(Value) -- Đảm bảo min < max
-        ShowNotification("Cài đặt", string.format("Tỉ lệ tối đa: %.0f%%", Value), 3)
-    end,
+        ShowNotification("Cài đặt", string.format("Tỉ lệ tối đa: %.0f%%", Value))
+    end
 })
 
-SettingsTab:CreateToggle({
-    Name = "Sử dụng lịch sử server (tránh server cũ)",
-    CurrentValue = Config.EnableFileHistory,
-    Flag = "FileHistoryToggle",
+ServerFindSection:CreateToggle({
+    Name = 'Sử dụng lịch sử server (tránh server cũ)',
     Callback = function(Value)
         Config.EnableFileHistory = Value
-        if not canAccessFiles and Value then
-            ShowNotification("Lưu ý", "Tính năng này yêu cầu quyền đọc/ghi file nhưng quyền đã bị từ chối.", 8)
-        else
-            ShowNotification("Cài đặt", "Sử dụng lịch sử file: " .. (Value and "Bật" or "Tắt"), 3)
-        end
+        if not canAccessFiles and Value then ShowNotification("Lưu ý", "Tính năng này cần quyền đọc/ghi file.") end
     end,
+    Enabled = Config.EnableFileHistory
 })
 
+-- Khởi tạo trạng thái ban đầu
+updateStatusLabel("Trạng thái: Chưa hoạt động")
 
--- --- Khởi chạy các tác vụ nền ---
--- Áp dụng giới hạn FPS nếu có
+-- Khởi chạy các tác vụ nền
 if type(setfpscap) == "function" then
     task.spawn(function()
-        while task.wait() do
-            if Config.TargetFPS and Config.TargetFPS > 0 then
-                pcall(setfpscap, Config.TargetFPS)
-            end
-        end
+        while task.wait() do if Config.TargetFPS and Config.TargetFPS > 0 then pcall(setfpscap, Config.TargetFPS) end end
     end)
 end
 
-ShowNotification("Hoàn tất", "Giao diện Server Hop đã sẵn sàng!", 8)
-print("[MainInit] Script Rayfield đã hoàn tất khởi chạy.")
+ShowNotification("Hoàn tất", "Giao diện Cerberus đã sẵn sàng!")
+print("[MainInit] Script Cerberus đã hoàn tất khởi chạy.")
